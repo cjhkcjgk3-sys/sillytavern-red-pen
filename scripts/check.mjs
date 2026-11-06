@@ -11,7 +11,9 @@ for (const path of [manifest.js,manifest.css]) {
 }
 const entry = await readFile(resolve(root,manifest.js),'utf8');
 for (const fn of Object.values(manifest.hooks)) assert.ok(new RegExp(`export (?:async )?function ${fn}\\b`).test(entry));
-assert.ok(entry.includes('globalThis.'+manifest.generate_interceptor));
+assert.ok((await readFile(resolve(root,'src/app.js'),'utf8')).includes('globalThis.'+manifest.generate_interceptor));
+assert.equal(manifest.version, JSON.parse(await readFile(resolve(root,'package.json'),'utf8')).version);
+assert.ok(entry.includes(`VERSION = '${manifest.version}'`));
 const jsFiles = ['index.js', ...((await readdir(resolve(root,'src'))).filter(x=>x.endsWith('.js')).map(x=>'src/'+x))];
 for (const path of jsFiles) {
     execFileSync(process.execPath,['--check',resolve(root,path)]);

@@ -22,14 +22,12 @@ export async function copy(text) {
 export class UI {
     constructor(app) {
         this.app = app; this.selected = new Set(); this.query = ''; this.rows = [];
-        this.bar = node('div', null, 'rp-bar'); this.bar.id = 'red-pen-bar';
-        this.toggle = button('红笔：关闭', () => app.setEnabled(!app.enabled));
-        this.toggle.setAttribute('aria-pressed', 'false');
-        this.libraryButton = button('标记库 0', () => this.open());
-        this.bar.append(this.toggle, this.libraryButton); document.body.append(this.bar);
+        this.controlPanel = app.controlPanel;
         this.action = node('div', null, 'rp-action'); this.action.hidden = true;
         this.action.setAttribute('role', 'toolbar'); this.action.setAttribute('aria-label', '文字选区操作');
-        this.action.addEventListener('pointerdown', e => e.preventDefault());
+        this.action.addEventListener('pointerdown', e => { this.actionPointerActive = true; if (e.pointerType === 'mouse') e.preventDefault(); });
+        this.action.addEventListener('pointerup', () => { clearTimeout(this.actionTimer); this.actionTimer = setTimeout(() => { this.actionPointerActive = false; this.app.scheduleSelection(); }, 300); });
+        this.action.addEventListener('pointercancel', () => { this.actionPointerActive = false; });
         document.body.append(this.action);
         this.toast = node('div', null, 'rp-toast'); this.toast.hidden = true; this.toast.setAttribute('role', 'status'); document.body.append(this.toast);
         this.dialog = node('dialog', null, 'rp-library'); this.dialog.setAttribute('aria-label', '当前聊天标记库');
@@ -62,18 +60,21 @@ export class UI {
         this.dialog.addEventListener('click', e => { if (e.target === this.dialog) { const r = this.dialog.getBoundingClientRect(); if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) this.dialog.close(); } });
         document.body.append(this.dialog);
         this.inspect = node('dialog', null, 'rp-library rp-inspect'); this.inspect.setAttribute('aria-label', '附加内容核对'); document.body.append(this.inspect);
+        for (const dialog of [this.dialog, this.inspect, this.controlPanel?.dialog].filter(Boolean)) app.listen(dialog, 'close', () => this.placeToast());
     }
     filtered() { return (this.app.library?.records ?? []).filter(r => r.text.includes(this.query)); }
     say(message, undo) {
+        this.placeToast();
         clearTimeout(this.toastTimer); this.toast.replaceChildren(node('span', message)); this.toast.hidden = false;
         if (undo) this.toast.append(button('撤销', async () => { await undo(); this.toast.hidden = true; }));
         this.toastTimer = setTimeout(() => { this.toast.hidden = true; }, undo ? 10000 : 6500);
     }
+    placeToast() {
+        const parent = this.inspect.open ? this.inspect : this.dialog.open ? this.dialog : this.controlPanel?.dialog.open ? this.controlPanel.dialog : document.body;
+        parent.append(this.toast);
+    }
     update() {
-        const total = this.app.library?.records.length ?? 0;
-        this.toggle.textContent = `红笔：${this.app.enabled ? '开启' : '关闭'}`;
-        this.toggle.setAttribute('aria-pressed', String(this.app.enabled));
-        this.libraryButton.textContent = `标记库 ${total}`;
+        this.controlPanel?.update(this.app);
         if (this.dialog.open) this.renderRows();
     }
     async open() {
@@ -148,7 +149,7 @@ export class UI {
         if (!this.inspect.open) this.inspect.showModal();
     }
     dispose() {
-        clearTimeout(this.toastTimer);
-        for (const el of [this.bar, this.action, this.toast, this.dialog, this.inspect]) el.remove();
+        clearTimeout(this.toastTimer); clearTimeout(this.actionTimer);
+        for (const el of [this.action, this.toast, this.dialog, this.inspect]) el.remove();
     }
 }

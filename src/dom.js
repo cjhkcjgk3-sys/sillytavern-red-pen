@@ -90,7 +90,7 @@ export function captureSelection(selection = window.getSelection()) {
 
 export class Painter {
     constructor() { this.entries = []; }
-    clear() { CSS.highlights?.delete('red-pen'); this.entries = []; }
+    clear() { globalThis.CSS?.highlights?.delete('red-pen'); this.entries = []; }
     paint(entries) {
         this.clear();
         if (!entries.length) return;

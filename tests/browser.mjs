@@ -33,6 +33,14 @@ const page = await context.newPage();
 const errors = []; page.on('pageerror', e => errors.push(e.message)); page.on('dialog', dialog => dialog.accept());
 try {
     await page.goto(url); await page.waitForFunction(()=>window.fixtureReady);
+    await run('魔术棒唯一入口打开统一面板，可开启、暂停且没有悬浮常驻按钮',async()=>{
+        assert.equal(await page.locator('#red-pen-bar').count(),0);
+        await page.locator('#extensionsMenuButton').click();await page.getByRole('menuitem',{name:'红笔标记'}).click();
+        const panel=page.getByRole('dialog',{name:'红笔标记控制面板'});assert.equal(await panel.isVisible(),true);
+        await panel.getByRole('button',{name:'开启标记',exact:true}).click();await page.waitForFunction(()=>app.enabled);
+        await panel.getByRole('button',{name:'暂停标记',exact:true}).click();await page.waitForFunction(()=>!app.enabled);
+        await panel.getByRole('button',{name:'关闭',exact:true}).click();
+    });
     await run('默认关闭；重复句只标记一个位置；准确局部选区；不改写消息', async () => {
         const r = await page.evaluate(async () => {
             const before = JSON.stringify(context.chat);
@@ -206,14 +214,15 @@ try {
         await page.evaluate(()=>app.ui.dialog.close());
     });
     await run('停用清理：DOM、事件、观察器、高亮和 fetch 恢复', async()=>{
-        const r=await page.evaluate(()=>{const original=app.transport.original;app.dispose();return{fetch:fetch===original,bar:!!document.getElementById('red-pen-bar'),highlight:CSS.highlights.has('red-pen'),listeners:[...context.eventSource.listeners.values()].flat().length};});
+        const r=await page.evaluate(()=>{const original=app.transport.original;app.dispose();fixture.dispose();return{fetch:fetch===original,bar:!!document.getElementById('red-pen-menu-item'),highlight:CSS.highlights.has('red-pen'),listeners:[...context.eventSource.listeners.values()].flat().length};});
         assert.deepEqual(r,{fetch:true,bar:false,highlight:false,listeners:0});
     });
     const mobile=await browser.newContext({viewport:{width:393,height:851},deviceScaleFactor:2,isMobile:true,hasTouch:true});
     const phone=await mobile.newPage();phone.on('pageerror',e=>errors.push(e.message));phone.on('dialog',d=>d.accept());
     await phone.goto(url);await phone.waitForFunction(()=>window.fixtureReady);
     await run('手机竖屏触屏选区后点击标记、库操作及无横向溢出（模拟设备）', async()=>{
-        await phone.getByRole('button',{name:'红笔：关闭'}).tap();
+        await phone.locator('#extensionsMenuButton').tap();await phone.getByRole('menuitem',{name:'红笔标记'}).tap();
+        await phone.getByRole('button',{name:'开启标记',exact:true}).tap();await phone.getByRole('dialog',{name:'红笔标记控制面板'}).getByRole('button',{name:'关闭',exact:true}).tap();
         await phone.evaluate(()=>{selectText(1,'p',3,7);app.scheduleSelection();});
         await phone.locator('.rp-action').waitFor({state:'visible'});await phone.locator('.rp-action button').filter({hasText:/^标记$/}).tap();
         await phone.waitForFunction(()=>app.library.records.length===1);
@@ -222,7 +231,7 @@ try {
         assert.equal(await phone.locator('.rp-action').isVisible(),true);
         await phone.locator('.rp-action button').filter({hasText:'取消标记'}).tap();await phone.waitForFunction(()=>app.library.records.length===0);
         await phone.locator('.rp-toast button').filter({hasText:'撤销'}).tap();await phone.waitForFunction(()=>app.library.records.length===1);
-        await phone.locator('.rp-bar button').filter({hasText:/标记库/}).tap();
+        await phone.getByRole('menuitem',{name:'红笔标记'}).tap();await phone.getByRole('button',{name:/打开标记库/}).tap();
         await phone.getByRole('searchbox').fill('重复');
         await phone.getByLabel('全选搜索结果').check();
         assert.equal(await phone.evaluate(()=>app.ui.selected.size),1);
@@ -234,6 +243,19 @@ try {
         await phone.screenshot({path:resolve(root,'docs/evidence/mobile-light-fixture.png')});
     });
     await mobile.close();
+    await run('不支持高亮时仍有魔术棒前端、明确原因和可查看的已存内容库',async()=>{
+        const limited=await browser.newContext({viewport:{width:393,height:851}});const tab=await limited.newPage();
+        tab.on('pageerror',e=>errors.push(e.message));
+        await tab.addInitScript(()=>{Object.defineProperty(CSS,'highlights',{configurable:true,value:undefined});window.Highlight=undefined;});
+        await tab.goto(url);await tab.waitForFunction(()=>window.fixtureReady);
+        await tab.evaluate(()=>app.mutate(app.key(),lib=>{lib.records=[makeRecord(0,'已保存的摘录')];lib.nextNumber=2;}));
+        await tab.locator('#extensionsMenuButton').click();await tab.getByRole('menuitem',{name:'红笔标记'}).click();
+        const panel=tab.getByRole('dialog',{name:'红笔标记控制面板'});
+        assert.match(await panel.innerText(),/缺少文字高亮能力/);assert.equal(await panel.getByRole('button',{name:'开启标记',exact:true}).isDisabled(),true);
+        await panel.getByRole('button',{name:/打开标记库/}).click();await tab.getByRole('dialog',{name:'当前聊天标记库'}).waitFor({state:'visible'});
+        assert.match(await tab.getByRole('dialog',{name:'当前聊天标记库'}).innerText(),/已保存的摘录/);
+        await limited.close();
+    });
     assert.deepEqual(errors,[]);
     await writeFile(resolve(root,'docs/evidence/browser-results.json'),JSON.stringify({environment:'本地 HTTP 测试夹具，非真实 SillyTavern / 安卓设备',browser:browser.version(),at:new Date().toISOString(),results},null,2));
     console.log(`Browser checks passed: ${results.length}; Chromium ${browser.version()}`);

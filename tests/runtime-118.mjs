@@ -30,12 +30,13 @@ const pluginPath='/scripts/extensions/third-party/red-pen/index.js';
 const root=resolve(import.meta.dirname,'..');
 async function record(name,action){const data=await action();results.push({name,status:'通过（隔离真实酒馆，模型为本地模拟接口）',...data});console.log('✓',name);}
 async function ready(){
-    await page.waitForFunction(()=>document.getElementById('red-pen-bar')||document.querySelector('dialog[open] .onboarding'),null,{timeout:60000});
+    await page.waitForFunction(()=>document.getElementById('red-pen-menu-item')||document.querySelector('dialog[open] .onboarding'),null,{timeout:60000});
     if(await page.locator('dialog[open] .onboarding').count()){
         await page.locator('dialog[open] .popup-input').fill('红笔测试员');
         await page.locator('dialog[open] .popup-button-ok').click();
     }
-    await page.locator('#red-pen-bar').waitFor({state:'visible',timeout:60000});
+    await page.locator('#red-pen-menu-item').waitFor({state:'attached',timeout:60000});
+    await page.waitForFunction(()=>SillyTavern.getContext().eventSource.autoFireLastArgs.has('app_ready'),null,{timeout:60000});
     await page.evaluate(async path=>{window.rpApp=await(await import(path)).initialize();},pluginPath);
 }
 async function mark(index,text){
@@ -71,9 +72,14 @@ async function generate(type,provider='custom'){
 try{
     await page.goto(url,{waitUntil:'domcontentloaded'});await ready();
     const version=await page.evaluate(async()=>await(await fetch('/version')).json());assert.equal(version.pkgVersion,'1.18.0');
-    await record('1.18 原生扩展管理加载 0.1.1；首次挂载无重复',async()=>{
-        assert.equal(await page.locator('#red-pen-bar').count(),1);
-        assert.ok(await page.evaluate(()=>[...document.querySelectorAll('#red-pen-bar button')].every(b=>b.getBoundingClientRect().height<=60)),'Host min-content button styles must not stack Chinese text vertically');
+    await record('1.18 原生魔术棒加载 0.1.2，统一面板可开启暂停且无悬浮条',async()=>{
+        assert.equal(await page.locator('#red-pen-menu-item').count(),1);assert.equal(await page.locator('#red-pen-bar').count(),0);
+        await page.locator('#extensionsMenuButton').click();await page.locator('#red-pen-menu-item').click();
+        const panel=page.getByRole('dialog',{name:'红笔标记控制面板'});
+        await panel.getByRole('button',{name:'开启标记',exact:true}).click();await page.waitForFunction(()=>rpApp.enabled);
+        await panel.getByRole('button',{name:'暂停标记',exact:true}).click();await page.waitForFunction(()=>!rpApp.enabled);
+        assert.ok(await panel.locator('button').evaluateAll(buttons=>buttons.every(b=>b.getBoundingClientRect().height<=60)));
+        await panel.getByRole('button',{name:'关闭',exact:true}).click();
         return{version:version.pkgVersion,commit:version.gitRevision,pluginVersion:await page.evaluate(async()=>await(await fetch('/scripts/extensions/third-party/red-pen/manifest.json')).json()).then(x=>x.version)};
     });
     const testAvatar=await page.evaluate(async()=>{
@@ -138,6 +144,25 @@ try{
     await mkdir(resolve(root,'docs/evidence'),{recursive:true});
     await page.evaluate(()=>rpApp.ui.open());
     await page.screenshot({path:resolve(root,'docs/evidence/runtime-1.18.png')});
+    await page.getByRole('dialog',{name:'当前聊天标记库'}).getByRole('button',{name:'关闭',exact:true}).click();
+    await record('真实 1.18 手机竖屏魔术棒入口与控制面板可操作',async()=>{
+        await page.setViewportSize({width:393,height:851});
+        await page.locator('#extensionsMenuButton').click();await page.locator('#red-pen-menu-item').scrollIntoViewIfNeeded();
+        await page.screenshot({path:resolve(root,'docs/evidence/wand-menu-1.18-mobile.png')});
+        await page.locator('#red-pen-menu-item').click();
+        const panel=page.getByRole('dialog',{name:'红笔标记控制面板'});assert.ok((await panel.boundingBox()).width<=393);
+        await page.screenshot({path:resolve(root,'docs/evidence/control-1.18-mobile.png')});
+        await panel.getByRole('button',{name:'关闭',exact:true}).click();return{};
+    });
+    await record('核心模块加载失败仍保留原生魔术棒入口和持久错误说明',async()=>{
+        const broken=await browser.newPage();
+        await broken.route('**/scripts/extensions/third-party/red-pen/src/app.js',route=>route.abort());
+        await broken.goto(url);
+        await broken.waitForFunction(()=>document.querySelector('#red-pen-control details pre')?.textContent.includes('启动失败原因'),null,{timeout:60000});
+        await broken.locator('#extensionsMenuButton').click();await broken.locator('#red-pen-menu-item').click();
+        assert.match(await broken.getByRole('dialog',{name:'红笔标记控制面板'}).innerText(),/红笔尚未就绪/);
+        await broken.close();return{};
+    });
     await writeFile(resolve(root,'docs/evidence/runtime-1.18.json'),JSON.stringify({environment:'真实隔离 SillyTavern 1.18.0 + 本地 OpenAI/Google 模拟接口；未连接真实模型服务',version:version.pkgVersion,sourceCommit:'51ad27fb86d39a3daca3adaa970375c9670c12df',browser:browser.version(),at:new Date().toISOString(),results,unrelatedStartupErrors:errors,requests:mockRequests.map((r,i)=>({provider:r.body.contents?'Google contents/parts':'OpenAI messages',index:i+1,hasMarkedMaterial:JSON.stringify(r.body).includes('这些片段由用户手动标记')}))},null,2)+'\n');
     console.log('Real SillyTavern 1.18 checks passed:',results.length);
 }finally{await browser.close();await new Promise(r=>mock.close(r));}

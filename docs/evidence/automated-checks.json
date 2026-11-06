@@ -1,19 +1,25 @@
 {
   "date": "2026-11-06",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "manifest_hooks_syntax_imports": "passed: npm run check",
   "unit_tests": {
     "command": "npm test",
     "passed": 15,
     "failed": 0
   },
-  "browser": "Passed: browser-results.json (local HTTP fixtures, including 1.18 shared integrity branches)",
+  "browser": "Passed: browser-results.json, including unified menu and missing-highlight capability checks",
   "live_sillytavern": {
     "version": "1.18.0",
-    "passed": 10,
+    "passed": 12,
     "evidence": "runtime-1.18.json",
     "model_endpoint": "local OpenAI and Google mock servers; not real model services"
   },
+  "previous_version_reproduction": {
+    "version": "0.1.1",
+    "condition": "simulated missing CSS highlights",
+    "result": "startup rejected; no controls or persistent diagnostic UI"
+  },
   "real_android": "not tested",
+  "real_ios": "not tested",
   "real_model_services": "not tested"
 }

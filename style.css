@@ -3,12 +3,18 @@
     text-decoration: underline solid #ee4a53 2px;
     text-underline-offset: 3px;
 }
-.rp-bar, .rp-action, .rp-toast, .rp-library { font: inherit; color: var(--SmartThemeBodyColor, #eee); box-sizing: border-box; }
-.rp-bar { position: fixed; right: 12px; bottom: max(90px, env(safe-area-inset-bottom)); display: flex; gap: 4px; z-index: 2000; padding: 4px; border: 1px solid var(--SmartThemeBorderColor, #777); border-radius: 10px; background: var(--SmartThemeBlurTintColor, #25252d); }
-.rp-bar .menu_button, .rp-action .menu_button, .rp-library .menu_button, .rp-toast .menu_button { margin: 0; padding: 8px 10px; min-height: 44px; cursor: pointer; font: inherit; border-radius: 6px; display: inline-flex; width: auto; flex: 0 0 auto; white-space: nowrap; }
-.rp-bar [aria-pressed="true"] { color: #ff747b; box-shadow: inset 0 -2px #ee4a53; }
+.rp-action, .rp-toast, .rp-library { font: inherit; color: var(--SmartThemeBodyColor, #eee); box-sizing: border-box; }
+.rp-action .menu_button, .rp-library .menu_button, .rp-toast .menu_button { margin: 0; padding: 8px 10px; min-height: 44px; cursor: pointer; font: inherit; border-radius: 6px; display: inline-flex; width: auto; flex: 0 0 auto; white-space: nowrap; }
+.rp-control [aria-pressed="true"] { color: #ff747b; box-shadow: inset 0 -2px #ee4a53; }
+.rp-control { width: min(620px, calc(100vw - 24px)); }
+.rp-control .rp-help { line-height: 1.65; margin: 20px 0 10px; }
+.rp-control details { margin-top: 18px; }
+.rp-control summary { min-height: 40px; cursor: pointer; }
+.rp-control pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.6; }
+#red-pen-menu-item { min-height: 44px; }
 .rp-action { position: fixed; z-index: 10010; display: flex; gap: 6px; align-items: center; padding: 6px; border: 1px solid var(--SmartThemeBorderColor, #777); border-radius: 9px; background: var(--SmartThemeBlurTintColor, #25252d); box-shadow: 0 3px 16px #0005; max-width: calc(100vw - 16px); }
 .rp-action[hidden], .rp-toast[hidden] { display: none; }
+.rp-action button { touch-action: manipulation; }
 .rp-toast { position: fixed; z-index: 10030; left: 50%; transform: translateX(-50%); bottom: max(155px, env(safe-area-inset-bottom)); padding: 12px 16px; width: max-content; max-width: calc(100vw - 24px); background: var(--SmartThemeBlurTintColor, #25252d); border: 1px solid var(--SmartThemeBorderColor, #777); border-radius: 10px; overflow-wrap: anywhere; display: flex; gap: 12px; align-items: center; }
 .rp-library { width: min(760px, calc(100vw - 24px)); max-height: 86dvh; padding: 18px; margin: auto; border: 1px solid var(--SmartThemeBorderColor, #666); border-radius: 12px; background: var(--SmartThemeBlurTintColor, #25252d); overflow: auto; overscroll-behavior: contain; }
 .rp-library::backdrop { background: #0008; }
@@ -26,7 +32,7 @@
 .rp-row-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
 .rp-more { margin-bottom: 12px; }
 .rp-more > button { margin-right: 6px !important; margin-bottom: 6px !important; }
-.rp-library :focus-visible, .rp-bar :focus-visible, .rp-action :focus-visible { outline: 2px solid #ee4a53; outline-offset: 2px; }
+.rp-library :focus-visible, .rp-action :focus-visible { outline: 2px solid #ee4a53; outline-offset: 2px; }
 .rp-library button:disabled { opacity: .45; cursor: default; }
 .rp-locate { outline: 2px solid #e95d67; outline-offset: -2px; }
 .rp-copy { position: fixed; left: 0; top: 0; width: 1px; height: 1px; opacity: .01; }
@@ -36,5 +42,4 @@
 }
 @media (max-width: 600px) {
     .rp-library { width: 100%; max-width: 100%; max-height: 90dvh; margin: auto 0 0; padding: 16px 12px max(16px, env(safe-area-inset-bottom)); border-radius: 14px 14px 0 0; }
-    .rp-bar { right: 8px; }
 }

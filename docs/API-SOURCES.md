@@ -1,5 +1,13 @@
 # API 与运行合同
 
+## 0.1.2：原生魔术棒入口与独立启动诊断
+
+入口挂载依据指定 1.18 源码中的 [wandMenu.html](https://github.com/SillyTavern/SillyTavern/blob/51ad27fb86d39a3daca3adaa970375c9670c12df/public/scripts/templates/wandMenu.html)、[extensions.js](https://github.com/SillyTavern/SillyTavern/blob/51ad27fb86d39a3daca3adaa970375c9670c12df/public/scripts/extensions.js) 和 [caption 原生扩展](https://github.com/SillyTavern/SillyTavern/blob/51ad27fb86d39a3daca3adaa970375c9670c12df/public/scripts/extensions/caption/index.js)：`#extensionsMenu` 是原生魔术棒菜单，项目以与原生扩展一致的菜单项样式添加一个入口，不另造魔术棒按钮。
+
+`index.js` 不再静态依赖核心模块，先挂载菜单与控制面板，再等待 APP_READY / 显式启动，动态加载 `src/app.js`。面板提供开启、暂停、库管理和状态检查；加载失败不会清除菜单，停用扩展时仍配对移除菜单、弹层、等待计时器与监听。
+
+原 0.1.1 的浏览器高亮 preflight 在失败时阻断全部 UI；0.1.2 把持久保存等启动错误交由独立入口展示，缺少高亮则创建只管理已存记录的界面，并将新增和请求附加保持暂停。该行为已由缺少能力的浏览器夹具和真实 1.18 的核心加载失败场景检查，不能据此宣称真实 iOS / 安卓的原生选区已通过。
+
 ## 0.1.1：1.18 兼容依据与实际运行
 
 新增正式标签 **1.18.0**，固定提交 `51ad27fb86d39a3daca3adaa970375c9670c12df`。检查了主页面 getContext、APP_READY/生成/聊天/回答版本事件、扩展 hooks 与 generate_interceptor、保存及压缩格式、聊天补全端点和 Google / Vertex 转换。以下公开源码是本次精确接口依据：
