@@ -6,9 +6,9 @@ export function node(tag, text, className) {
     if (className) el.className = className;
     return el;
 }
-export function button(text, action) {
+export function button(text, action, report) {
     const el = node('button', text, 'menu_button'); el.type = 'button';
-    el.addEventListener('click', () => Promise.resolve().then(action).catch(e => alert(e.message)));
+    el.addEventListener('click', () => Promise.resolve().then(action).catch(e => (report ?? (error => console.error('[红笔]', error)))(e)));
     return el;
 }
 export async function copy(text) {
@@ -23,6 +23,9 @@ export class UI {
     constructor(app) {
         this.app = app; this.selected = new Set(); this.query = ''; this.rows = [];
         this.controlPanel = app.controlPanel;
+        // Native alert() blocks the page (and hangs mobile browsers); surface
+        // every action failure through the plugin's own toast instead.
+        this.act = (text, action) => button(text, action, e => this.say(`操作失败：${e.message}`));
         this.action = node('div', null, 'rp-action'); this.action.hidden = true;
         this.action.setAttribute('role', 'toolbar'); this.action.setAttribute('aria-label', '文字选区操作');
         this.action.addEventListener('pointerdown', e => { this.actionPointerActive = true; if (e.pointerType === 'mouse') e.preventDefault(); });
@@ -31,7 +34,7 @@ export class UI {
         document.body.append(this.action);
         this.toast = node('div', null, 'rp-toast'); this.toast.hidden = true; this.toast.setAttribute('role', 'status'); document.body.append(this.toast);
         this.dialog = node('dialog', null, 'rp-library'); this.dialog.setAttribute('aria-label', '当前聊天标记库');
-        const header = node('header'); header.append(node('strong', '标记库'), button('关闭', () => this.dialog.close()));
+        const header = node('header'); header.append(node('strong', '标记库'), this.act('关闭', () => this.dialog.close()));
         this.state = node('p', null, 'rp-state');
         this.search = node('input'); this.search.type = 'search'; this.search.placeholder = '搜索摘录原文'; this.search.setAttribute('aria-label', '搜索摘录原文');
         this.search.addEventListener('input', () => { this.query = this.search.value; this.selected.clear(); this.renderRows(); });
@@ -39,8 +42,8 @@ export class UI {
         this.selectAll = node('input'); this.selectAll.type = 'checkbox';
         const selectLabel = node('label', ' 全选搜索结果'); selectLabel.prepend(this.selectAll);
         this.selectAll.addEventListener('change', () => { this.selected = new Set(this.selectAll.checked ? this.filtered().map(r => r.id) : []); this.renderRows(); });
-        this.copySelected = button('复制已选 0', async () => { const rows = this.app.library.records.filter(r => this.selected.has(r.id)); await copy(rows.map(r => r.text).join('\n\n')); this.say(`已复制 ${rows.length} 条原文`); });
-        this.cancelSelected = button('取消已选 0', async () => {
+        this.copySelected = this.act('复制已选 0', async () => { const rows = this.app.library.records.filter(r => this.selected.has(r.id)); await copy(rows.map(r => r.text).join('\n\n')); this.say(`已复制 ${rows.length} 条原文`); });
+        this.cancelSelected = this.act('取消已选 0', async () => {
             const ids = [...this.selected];
             if (ids.length && confirm(`取消当前聊天中选中的 ${ids.length} 条标记？可在短暂提示中撤销。`)) { await app.remove(ids); this.selected.clear(); }
         });
@@ -54,7 +57,7 @@ export class UI {
                 await app.importBackup(JSON.parse(await f.text()));
             } catch (e) { this.say('恢复失败：' + e.message); }
         });
-        more.append(button('导出备份', () => app.download()), button('恢复备份到当前聊天', () => file.click()), button('查看本次附加内容', () => this.preview()), file);
+        more.append(this.act('导出备份', () => app.download()), this.act('恢复备份到当前聊天', () => file.click()), this.act('查看本次附加内容', () => this.preview()), file);
         this.list = node('div', null, 'rp-list'); this.list.setAttribute('role', 'list');
         this.dialog.append(header, this.state, this.search, management, more, this.list);
         this.dialog.addEventListener('click', e => { if (e.target === this.dialog) { const r = this.dialog.getBoundingClientRect(); if (e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom) this.dialog.close(); } });
@@ -66,7 +69,7 @@ export class UI {
     say(message, undo) {
         this.placeToast();
         clearTimeout(this.toastTimer); this.toast.replaceChildren(node('span', message)); this.toast.hidden = false;
-        if (undo) this.toast.append(button('撤销', async () => { await undo(); this.toast.hidden = true; }));
+        if (undo) this.toast.append(this.act('撤销', async () => { await undo(); this.toast.hidden = true; }));
         this.toastTimer = setTimeout(() => { this.toast.hidden = true; }, undo ? 10000 : 6500);
     }
     placeToast() {
@@ -113,20 +116,20 @@ export class UI {
                 if (excerpt.open && !excerpt.querySelector('pre')) excerpt.append(node('pre', record.text));
             });
             const actions = node('div', null, 'rp-row-actions');
-            const locate = button('返回来源', async () => { await this.app.locate(record); this.dialog.close(); });
+            const locate = this.act('返回来源', async () => { await this.app.locate(record); this.dialog.close(); });
             locate.disabled = status.text !== '可定位';
-            actions.append(button('复制原文', async () => { await copy(record.text); this.say('原文已复制'); }), locate, button('取消标记', () => this.app.remove([record.id])));
+            actions.append(this.act('复制原文', async () => { await copy(record.text); this.say('原文已复制'); }), locate, this.act('取消标记', () => this.app.remove([record.id])));
             item.append(line, meta, excerpt, actions); fragment.append(item);
         }
         this.list.replaceChildren(fragment);
     }
     selection(candidate, error) {
         this.action.dataset.mode = 'selection';
-        this.action.replaceChildren(button('标记', () => {
-            if (error) throw new Error(error);
-            return this.app.add(candidate);
-        }));
-        if (candidate) this.action.append(button('复制', () => copy(candidate.text)));
+        if (error) this.action.replaceChildren(node('span', `无法标记：${error}`, 'rp-hint'), this.act('关闭', () => { this.action.hidden = true; }));
+        else {
+            this.action.replaceChildren(this.act('标记', () => this.app.add(candidate)));
+            this.action.append(this.act('复制', () => copy(candidate.text)));
+        }
         this.action.hidden = false;
         const rect = candidate?.range.getBoundingClientRect();
         this.action.style.left = `${Math.max(8, Math.min((rect?.left ?? 16), innerWidth - 170))}px`;
@@ -134,13 +137,13 @@ export class UI {
     }
     marked(record) {
         this.action.dataset.mode = 'marked';
-        this.action.replaceChildren(node('span', `标记 ${record.number}`), button('取消标记', () => this.app.remove([record.id])), button('复制', () => copy(record.text)));
+        this.action.replaceChildren(node('span', `标记 ${record.number}`), this.act('取消标记', () => this.app.remove([record.id])), this.act('复制', () => copy(record.text)));
         this.action.hidden = false;
     }
     preview() {
         const last = this.app.transport.last;
         const prepared = this.app.enabled ? material(this.app.library?.records ?? []) : '';
-        const header = node('header'); header.append(node('strong', '附加内容核对'), button('关闭', () => this.inspect.close()));
+        const header = node('header'); header.append(node('strong', '附加内容核对'), this.act('关闭', () => this.inspect.close()));
         const state = node('p', '以下为当前准备附加的材料，尚未提交。实际发送受请求启动时的开关和内容库快照控制。');
         const pre = node('pre', prepared || '当前附加内容为零');
         this.inspect.replaceChildren(header, state, pre);

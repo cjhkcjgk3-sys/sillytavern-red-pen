@@ -1,7 +1,7 @@
 import { addRecord, clone, exportBackup, fingerprint, inheritRecords, messageKey, mergeBackup, newLibrary, sourceStatus, uuid, validateBackup, versionKey } from './core.js';
 import { chatIdentity, needsSeparateScope, SCOPE } from './compat.js';
 import { Store } from './store.js';
-import { captureSelection, Painter, project, rangeFor } from './dom.js';
+import { captureSelection, messageRootOf, Painter, project, rangeFor } from './dom.js';
 import { Transport } from './transport.js';
 import { UI } from './ui.js';
 
@@ -20,8 +20,11 @@ export class RedPen {
     key() { return this.identity()?.key; }
     async initialize() {
         await this.store.open();
-        this.canHighlight = !!globalThis.CSS?.highlights && typeof globalThis.Highlight === 'function';
-        this.enabled = (await this.store.get('settings', this.user + ':enabled')) === true && this.canHighlight;
+        // CSS Custom Highlight is preferred, but a positioned overlay paints the
+        // same ranges when the browser lacks it, so marking is never disabled.
+        this.highlightMode = this.painter.native ? 'native' : 'overlay';
+        this.canHighlight = true;
+        this.enabled = (await this.store.get('settings', this.user + ':enabled')) === true;
         this.ui = new UI(this);
         this.transport = new Transport({ host: this.host, currentKey: () => this.key(), load: key => this.store.get('libraries', key), enabled: () => this.enabled, report: () => {}, notify: message => this.ui.say(message), ready: () => this.loading ?? Promise.resolve() });
         this.transport.observeSave = data => {
@@ -73,8 +76,15 @@ export class RedPen {
             await this.refresh();
         };
         on('CHAT_DELETED', retire); on('GROUP_CHAT_DELETED', retire);
-        this.listen(document, 'selectionchange', () => this.scheduleSelection());
-        this.listen(document, 'pointerup', () => this.scheduleSelection());
+        // Touch browsers differ in which of these they fire for a long-press
+        // selection, so every plausible trigger is observed.
+        for (const type of ['selectionchange', 'pointerup', 'mouseup', 'touchend', 'contextmenu', 'keyup']) {
+            this.listen(document, type, () => this.scheduleSelection(type));
+        }
+        // Some Android browsers only commit the selection without notifying, so
+        // poll briefly after a touch starts inside the chat.
+        this.listen(document, 'touchstart', e => { if (this.enabled && e.target?.closest?.('#chat')) this.watchSelection(); }, { passive: true });
+        this.listen(document, 'pointerdown', e => { if (this.enabled && e.pointerType !== 'mouse' && e.target?.closest?.('#chat')) this.watchSelection(); }, { passive: true });
         this.listen(document, 'keydown', e => { if (e.key === 'Escape') this.ui.action.hidden = true; });
         this.listen(document, 'click', e => {
             if (!this.enabled || !e.target.closest('.mes_text') || !window.getSelection()?.isCollapsed) return;
@@ -95,7 +105,10 @@ export class RedPen {
         if (chat) { this.observer = new MutationObserver(() => this.schedulePaint()); this.observer.observe(chat, { subtree: true, childList: true, characterData: true }); }
         await this.refresh();
     }
-    listen(target, type, fn) { target.addEventListener(type, fn); this.listeners.push(() => target.removeEventListener(type, fn)); }
+    listen(target, type, fn, options) {
+        target.addEventListener(type, fn, options);
+        this.listeners.push(() => target.removeEventListener(type, fn, options));
+    }
     async prepareIdentity() {
         const context = this.host(), metadata = context.chatMetadata;
         const initial = this.identity(context);
@@ -139,7 +152,7 @@ export class RedPen {
                 }
                 initial.branchParent = mainChat || null;
                 lib = (await this.store.update(identity.key, initial, () => {})).library;
-            } else if (lib.label !== identity.label || !Object.hasOwn(lib, 'branchParent')) lib = (await this.store.update(identity.key, lib, l => {
+            } else if (lib.label !== identity.label || !Object.prototype.hasOwnProperty.call(lib, 'branchParent')) lib = (await this.store.update(identity.key, lib, l => {
                 if (l.label !== identity.label) l.aliases = [...new Set([...(l.aliases ?? []), l.label])];
                 l.label = identity.label; l.branchParent = this.host().chatMetadata?.main_chat || null;
             })).library;
@@ -157,26 +170,63 @@ export class RedPen {
         return result;
     }
     async setEnabled(on) {
-        if (on && (!globalThis.CSS?.highlights || typeof Highlight !== 'function')) throw new Error('当前浏览器不支持文字高亮，请更新 Chrome 或 Edge 后使用');
         await this.store.setting(this.user + ':enabled', on);
         this.enabled = on; this.ui.action.hidden = true; this.ui.update(); this.paint();
         this.channel?.postMessage({ user: this.user, setting: true });
         if (this.transport.active) this.ui.say('设置已保存，将作用于之后的请求；当前请求保持启动时的标记状态');
     }
-    scheduleSelection() {
+    scheduleSelection(source = 'selectionchange') {
         clearTimeout(this.selectionTimer);
-        this.selectionTimer = setTimeout(() => {
-            if (this.ui.actionPointerActive) return;
-            if (!this.enabled || this.ui.dialog.open || this.ui.inspect.open || this.controlPanel?.dialog.open) { this.ui.action.hidden = true; return; }
-            const selection = window.getSelection();
-            if (!selection || selection.isCollapsed) { if (this.ui.action.dataset.mode !== 'marked') this.ui.action.hidden = true; return; }
-            const el = selection.anchorNode?.parentElement;
-            if (!el?.closest('.mes_text')) { this.ui.action.hidden = true; return; }
-            try {
-                const candidate = captureSelection(selection);
-                if (candidate) { candidate.chatKey = this.key(); candidate.version = versionKey(this.host().chat[candidate.index]); this.ui.selection(candidate); }
-            } catch (e) { this.ui.selection(null, e.message); }
-        }, 130);
+        this.selectionTimer = setTimeout(() => this.applySelection(source), 130);
+    }
+    watchSelection() {
+        if (!this.enabled || this.selectionWatch) return;
+        const started = Date.now();
+        this.selectionWatch = setInterval(() => {
+            if (!this.enabled || Date.now() - started > 2500) { clearInterval(this.selectionWatch); this.selectionWatch = null; return; }
+            this.applySelection('poll');
+        }, 180);
+    }
+    /** Single place that decides whether the floating 标记 entry is shown.
+     * Every outcome is recorded so 状态检查 can explain a missing entry. */
+    applySelection(source = 'selectionchange') {
+        if (this.ui.actionPointerActive) return;
+        const dialog = this.ui.dialog.open || this.ui.inspect.open || Boolean(this.controlPanel?.dialog?.open);
+        const selection = globalThis.getSelection?.() ?? null;
+        // The touch poll fires repeatedly; only re-project when the selection
+        // actually changed, so long messages are not walked every 180 ms.
+        const signature = selection ? [selection.anchorNode, selection.anchorOffset, selection.focusNode, selection.focusOffset] : null;
+        const previous = this.selectionSignature;
+        if (signature && previous && signature.every((value, index) => value === previous[index])) return;
+        this.selectionSignature = signature;
+        const diag = { at: new Date().toISOString(), source, enabled: this.enabled, dialog, collapsed: !selection || selection.isCollapsed, ranges: selection?.rangeCount ?? 0, state: '', message: '' };
+        this.selectionDiag = diag;
+        if (!this.enabled || dialog) { diag.state = this.enabled ? 'dialog' : 'disabled'; this.hideAction(); return; }
+        if (diag.collapsed || !diag.ranges) { diag.state = 'empty'; this.hideAction(); return; }
+        const root = messageRootOf(selection.getRangeAt(0).startContainer) ?? messageRootOf(selection.getRangeAt(0).endContainer);
+        if (!root) { diag.state = 'outside'; this.hideAction(); return; }
+        try {
+            const candidate = captureSelection(selection);
+            if (!candidate) throw new Error('没有可标记的可见正文');
+            const message = this.host().chat?.[candidate.index];
+            if (!message) throw new Error('这条消息不在当前聊天中，请刷新页面后重试');
+            candidate.chatKey = this.key();
+            candidate.version = versionKey(message);
+            this.lastCandidate = candidate;
+            diag.state = 'ok';
+            this.ui.selection(candidate);
+        } catch (e) {
+            diag.state = 'error';
+            diag.message = e.message;
+            this.ui.selection(null, e.message);
+        }
+    }
+    hideAction() { if (this.ui.action.dataset.mode !== 'marked') this.ui.action.hidden = true; }
+    /** Manual entry for 状态检查 / hosts where the floating entry is unreachable. */
+    async markSelection() {
+        if (!this.enabled) throw new Error('标记已暂停，请先开启标记');
+        if (!this.lastCandidate) throw new Error('没有检测到有效选区。请回到正文选中文字后，再点这里。');
+        return this.add(this.lastCandidate);
     }
     async ensureChatIdentitySaved(key) {
         if (this.saved.has(key)) return;
@@ -205,7 +255,9 @@ export class RedPen {
             source: { messageKey: sourceKey, version: candidate.version, rawHash: fingerprint(message.mes), speaker: message.name, role: message.is_user ? 'user' : 'assistant', messageIndex: candidate.index, swipeIndex: message.swipe_id ?? 0 },
         }));
         this.ui.action.hidden = true; window.getSelection()?.removeAllRanges();
-        this.ui.say(result.value ? '已标记并保存' : '这段原文已标记，无需重复添加');
+        const notice = result.value ? '已标记并保存' : '这段原文已标记，无需重复添加';
+        this.ui.say(notice);
+        return notice;
     }
     status(record, cache = new Map()) {
         const sourceKey = record.source.messageKey + ':' + record.source.version;
@@ -226,7 +278,7 @@ export class RedPen {
         if (!this.alive) return;
         this.messageKeys = this.host().chat.map(messageKey);
         this.painter.clear();
-        if (!this.enabled || !this.library || this.library.key !== this.key() || this.library.retired || !globalThis.CSS?.highlights) return;
+        if (!this.enabled || !this.library || this.library.key !== this.key() || this.library.retired) return;
         const entries = [], projections = new Map(), statuses = new Map();
         for (const record of this.library.records) {
             const sourceKey = record.source.messageKey + ':' + record.source.version;
@@ -285,23 +337,41 @@ export class RedPen {
     }
     dispose() {
         this.alive = false; this.epoch++; clearTimeout(this.selectionTimer); clearTimeout(this.paintTimer);
+        clearInterval(this.selectionWatch); this.selectionWatch = null;
         this.observer?.disconnect(); this.channel?.close();
         for (const cleanup of this.listeners.splice(0)) cleanup();
-        this.painter.clear(); this.transport?.dispose(); this.store.close(); this.ui?.dispose();
+        this.painter.dispose?.(); this.painter.clear(); this.transport?.dispose(); this.store.close(); this.ui?.dispose();
         this.controlPanel?.unbind();
         if (globalThis.redPenGenerationInterceptor === this.interceptor) delete globalThis.redPenGenerationInterceptor;
     }
 }
 
 function preflight(context) {
-    for (const name of ['getCurrentChatId', 'saveMetadata', 'getTokenCountAsync']) if (typeof context[name] !== 'function') throw new Error(`缺少酒馆能力 ${name}，请使用支持的版本`);
-    if (!context.eventTypes?.GENERATION_STARTED || !context.eventTypes?.GENERATION_ENDED || !context.accountStorage || !context.chatCompletionSettings || !context.eventSource) throw new Error('酒馆扩展接口不完整，红笔未启动');
+    const missing = ['getCurrentChatId', 'saveMetadata', 'getTokenCountAsync'].filter(name => typeof context[name] !== 'function');
+    if (missing.length) throw new Error(`当前酒馆缺少 ${missing.join('、')}，请在扩展列表里升级酒馆后重试`);
+    const gaps = [];
+    if (!context.eventTypes?.GENERATION_STARTED || !context.eventTypes?.GENERATION_ENDED) gaps.push('生成事件');
+    if (!context.accountStorage) gaps.push('账号存储');
+    if (!context.chatCompletionSettings) gaps.push('聊天补全设置');
+    if (!context.eventSource) gaps.push('事件总线');
+    if (gaps.length) throw new Error(`当前酒馆版本缺少 ${gaps.join('、')}；本插件在 1.18 / 1.19 上验证，请升级酒馆`);
     if (!globalThis.indexedDB) throw new Error('当前浏览器无法使用持久保存，请允许此站点保存数据后重试');
+}
+async function hostVersion() {
+    try {
+        const response = await fetch('/version', { headers: { accept: 'application/json' } });
+        if (!response.ok) return '';
+        const data = await response.json();
+        return String(data?.pkgVersion ?? data?.version ?? '');
+    } catch { return ''; }
 }
 export async function createApplication(controlPanel) {
     const context = host(); preflight(context);
     const { getCurrentUserHandle } = await import('/scripts/user.js');
     const app = new RedPen(host, getCurrentUserHandle());
+    app.hostVersion = await hostVersion();
+    // 1.12+ can load the extension, but only 1.18 / 1.19 were verified.
+    app.versionWarning = app.hostVersion && !/^1\.(18|19)\./.test(app.hostVersion) ? `当前酒馆 ${app.hostVersion} 低于验证基线 1.18.0，基础标记可用，其余效果未验证` : '';
     app.controlPanel = controlPanel;
     try { await app.initialize(); return app; } catch (e) { app.dispose(); throw e; }
 }

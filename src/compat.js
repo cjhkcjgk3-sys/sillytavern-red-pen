@@ -18,7 +18,7 @@ export function needsSeparateScope(context, identity, library) {
     if (!library) return !!parent && !context.chatMetadata[SCOPE];
     // New libraries remember the native branch lineage. Renaming does not
     // change that lineage, while branching from this chat does.
-    if (Object.hasOwn(library, 'branchParent')) return library.branchParent !== parent;
+    if (Object.prototype.hasOwnProperty.call(library, 'branchParent')) return library.branchParent !== parent;
     // Preserve existing 0.1.0 libraries, including renamed 1.19 branches.
     if (library.label === identity.label || (library.inheritedFrom && parent)) return false;
     return !!parent;

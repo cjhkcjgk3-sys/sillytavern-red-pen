@@ -12,7 +12,8 @@ export function appendMaterial(payload, snapshot) {
     // Keep the user's latest instruction and an assistant continuation prefix in
     // their original trailing positions. A trailing data-only user turn would
     // change the meaning of native continuation requests.
-    let index = next.messages.findLastIndex(message => message.role === 'user');
+    let index = -1;
+    for (let i = next.messages.length - 1; i >= 0; i--) { if (next.messages[i].role === 'user') { index = i; break; } }
     if (index < 0) { index = next.messages.findIndex(message => message.role !== 'system'); if (index < 0) index = next.messages.length; }
     if (content) next.messages.splice(index, 0, { role: 'user', content });
     return { payload: next, content, index };

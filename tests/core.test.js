@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { addRecord, clone, exportBackup, fingerprint, inheritRecords, material, messageKey, mergeBackup, newLibrary, sourceStatus, validateBackup, versionKey } from '../src/core.js';
 import { appendMaterial, Transport } from '../src/transport.js';
+import { trimBlankEdges } from '../src/dom.js';
 
 const message = { name: '角色', is_user: false, send_date: '2026-11-06T00:00:00', mes: '第一句。重复句。重复句。' };
 function record(start = 4, end = 8, text = '重复句。') {
@@ -116,4 +117,15 @@ test('材料放在最新用户要求之前，继续生成的末尾助手前缀�
     assert.equal(prepared.payload.messages.at(-1).content,'待续前缀');
     assert.equal(prepared.payload.messages.at(-2).content,'继续讲述');
     assert.deepEqual(messages,[{role:'system',content:'系统要求'}, {role:'user',content:'继续讲述'}, {role:'assistant',content:'待续前缀'}]);
+});
+
+test('触屏手柄常带的边界空白只裁掉两端空白，代码缩进与正文不受影响', () => {
+    const units = [...' a b '].map(text => ({ text }));
+    assert.deepEqual(trimBlankEdges(units, 0, 5), { start: 1, end: 4 });
+    assert.deepEqual(trimBlankEdges(units, 1, 4), { start: 1, end: 4 });
+    assert.deepEqual(trimBlankEdges(units, 0, 1), { start: 1, end: 1 });
+    assert.deepEqual(trimBlankEdges(units, 0, 5, { head: false }), { start: 0, end: 4 });
+    const code = [...'  let x = 1;'].map(text => ({ text }));
+    assert.equal(trimBlankEdges(code, 0, code.length).start, 2, '边界不可信时才裁');
+    assert.equal(trimBlankEdges(code, 0, code.length, { head: false }).start, 0, '起点已对齐时保留代码缩进');
 });

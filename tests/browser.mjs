@@ -41,6 +41,18 @@ try {
         await panel.getByRole('button',{name:'暂停标记',exact:true}).click();await page.waitForFunction(()=>!app.enabled);
         await panel.getByRole('button',{name:'关闭',exact:true}).click();
     });
+    await run('元素节点作为选区锚点时同样给出标记入口（触屏长按常见）', async () => {
+        const r = await page.evaluate(async () => {
+            await app.setEnabled(true);
+            const root = document.querySelector('.mes[mesid="2"] .mes_text');
+            const range = document.createRange(); range.setStart(root, 0); range.setEnd(root, 1);
+            const selection = getSelection(); selection.removeAllRanges(); selection.addRange(range);
+            document.dispatchEvent(new Event('selectionchange'));
+            await new Promise(done => setTimeout(done, 400));
+            return { hidden: app.ui.action.hidden, state: app.selectionDiag.state, text: app.ui.action.textContent };
+        });
+        assert.equal(r.state, 'ok'); assert.equal(r.hidden, false); assert.match(r.text, /标记/);
+    });
     await run('默认关闭；重复句只标记一个位置；准确局部选区；不改写消息', async () => {
         const r = await page.evaluate(async () => {
             const before = JSON.stringify(context.chat);
@@ -243,17 +255,22 @@ try {
         await phone.screenshot({path:resolve(root,'docs/evidence/mobile-light-fixture.png')});
     });
     await mobile.close();
-    await run('不支持高亮时仍有魔术棒前端、明确原因和可查看的已存内容库',async()=>{
+    await run('不支持 CSS 高亮时改用叠加层继续标记，内容库照常可读',async()=>{
         const limited=await browser.newContext({viewport:{width:393,height:851}});const tab=await limited.newPage();
         tab.on('pageerror',e=>errors.push(e.message));
         await tab.addInitScript(()=>{Object.defineProperty(CSS,'highlights',{configurable:true,value:undefined});window.Highlight=undefined;});
         await tab.goto(url);await tab.waitForFunction(()=>window.fixtureReady);
-        await tab.evaluate(()=>app.mutate(app.key(),lib=>{lib.records=[makeRecord(0,'已保存的摘录')];lib.nextNumber=2;}));
         await tab.locator('#extensionsMenuButton').click();await tab.getByRole('menuitem',{name:'红笔标记'}).click();
         const panel=tab.getByRole('dialog',{name:'红笔标记控制面板'});
-        assert.match(await panel.innerText(),/缺少文字高亮能力/);assert.equal(await panel.getByRole('button',{name:'开启标记',exact:true}).isDisabled(),true);
-        await panel.getByRole('button',{name:/打开标记库/}).click();await tab.getByRole('dialog',{name:'当前聊天标记库'}).waitFor({state:'visible'});
-        assert.match(await tab.getByRole('dialog',{name:'当前聊天标记库'}).innerText(),/已保存的摘录/);
+        assert.match(await panel.innerText(),/兼容模式/);
+        await panel.getByRole('button',{name:'开启标记',exact:true}).click();await tab.waitForFunction(()=>app.enabled);
+        assert.equal(await tab.evaluate(()=>app.highlightMode),'overlay');
+        await panel.getByRole('button',{name:'关闭',exact:true}).click();
+        await tab.evaluate(async()=>{await app.add(selectText(1,'p',3,7));});
+        assert.ok(await tab.locator('.rp-overlay i').count()>0,'叠加层应画出标记');
+        await tab.locator('#extensionsMenuButton').click();await tab.getByRole('menuitem',{name:'红笔标记'}).click();
+        await tab.getByRole('button',{name:/打开标记库/}).click();
+        assert.match(await tab.getByRole('dialog',{name:'当前聊天标记库'}).innerText(),/重复句/);
         await limited.close();
     });
     assert.deepEqual(errors,[]);

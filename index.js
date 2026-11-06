@@ -1,6 +1,6 @@
 // Keep the menu and startup diagnostics independent of core imports. Loading
 // failures must leave an entry that the user can open from the native wand.
-export const VERSION = '0.1.2';
+export const VERSION = '0.1.3';
 let instance, startPromise, controlPanel, bootstrapCleanup, hostTimer, generation = 0;
 function hasStorage() { try { return !!globalThis.indexedDB; } catch { return false; } }
 function element(tag, text, className) {
@@ -25,20 +25,22 @@ export function createControlPanel(retry = initialize) {
                 panel.toggle.setAttribute('aria-pressed', String(app.enabled));
                 panel.toggle.disabled = app.canHighlight === false;
                 panel.library.textContent = `打开标记库（${app.library?.records.length ?? 0}）`;
-                panel.status.textContent = app.canHighlight === false
-                    ? '当前浏览器缺少文字高亮能力，标记已暂停。请更新浏览器或手机系统；内容库仍可查看。'
-                    : app.enabled ? '标记已开启，当前聊天的有效标记会参与后续请求。' : '标记已暂停，已保存内容仍保留。点击“开启标记”开始使用。';
+                panel.status.textContent = (app.versionWarning ? '酒馆版本未经验证，基础标记可用。' : '') + (app.enabled ? '标记已开启，当前聊天的有效标记会参与后续请求。' : '标记已暂停，已保存内容仍保留。点击“开启标记”开始使用。');
             }
             panel.inspect();
         },
         inspect() {
-            const highlight = !!globalThis.CSS?.highlights && typeof globalThis.Highlight === 'function';
+            const app = panel.app, diag = app?.selectionDiag;
+            const states = { ok: '有效，已显示“标记”', empty: '没有选区', outside: '选区不在聊天正文内', dialog: '有面板打开，暂停响应选区', disabled: '标记已关闭', error: '无法标记' };
             panel.diagnostic.textContent = [
                 `插件版本：${VERSION}`,
                 `酒馆接口：${typeof globalThis.SillyTavern?.getContext === 'function' ? '已找到' : '尚未找到'}`,
+                `酒馆版本：${app?.hostVersion || '未知（未读到 /version）'}${app?.versionWarning ? '（低于验证基线）' : ''}`,
                 `持久保存：${hasStorage() ? '浏览器提供' : '不可用'}`,
-                `文字高亮：${highlight ? '支持' : '不支持，需要更新浏览器或手机系统'}`,
-                `运行状态：${panel.app ? '已启动' : '尚未启动'}`,
+                `文字高亮：${app ? (app.painter?.native === false ? '兼容模式（叠加层）' : '浏览器原生') : '尚未确定'}`,
+                `运行状态：${app ? '已启动' : '尚未启动'}`,
+                app ? `标记开关：${app.enabled ? '已开启' : '已暂停'}` : '',
+                diag ? `最近选区：${diag.source} · ${states[diag.state] ?? diag.state}${diag.message ? ' · ' + diag.message : ''}` : '最近选区：尚未收到选区事件',
                 panel.failure ? `启动失败原因：${panel.failure}` : '',
             ].filter(Boolean).join('\n');
         },
@@ -66,7 +68,14 @@ export function createControlPanel(retry = initialize) {
     panel.toggle = action('启动并开启标记', async () => { const app = panel.app ?? await retry(); await app.setEnabled(!app.enabled); });
     panel.toggle.setAttribute('aria-pressed', 'false');
     panel.library = action('打开标记库', async () => { const app = panel.app ?? await retry(); await app.ui.open(); });
-    controls.append(panel.toggle, panel.library);
+    // Fallback for hosts where the floating 标记 entry is unreachable.
+    panel.mark = action('标记当前选中的文字', async () => {
+        const app = panel.app ?? await retry();
+        const message = await app.markSelection();
+        panel.update(app);
+        panel.status.textContent = message;
+    });
+    controls.append(panel.toggle, panel.library, panel.mark);
     const help = element('p', '开启后，在普通聊天正文中长按选字，拖动系统选区手柄，再点击出现的“标记”。系统复制菜单仍可正常使用。', 'rp-help');
     const scope = element('p', '图片、视频和角色卡内嵌网页暂不支持选字标记。', 'rp-meta');
     panel.details = element('details'); panel.details.append(element('summary', '状态检查'));
