@@ -1,7 +1,7 @@
 {
   "display_name": "红笔标记",
   "author": "Red Pen contributors",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "loading_order": 100,
   "js": "index.js",
   "css": "style.css",

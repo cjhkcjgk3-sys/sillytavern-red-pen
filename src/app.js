@@ -279,7 +279,7 @@ export class RedPen {
         this.messageKeys = this.host().chat.map(messageKey);
         this.painter.clear();
         if (!this.enabled || !this.library || this.library.key !== this.key() || this.library.retired) return;
-        const entries = [], projections = new Map(), statuses = new Map();
+        const entries = [], projections = new Map(), statuses = new Map(), changed = [];
         for (const record of this.library.records) {
             const sourceKey = record.source.messageKey + ':' + record.source.version;
             if (!statuses.has(sourceKey)) statuses.set(sourceKey, sourceStatus(record, this.host().chat));
@@ -289,11 +289,24 @@ export class RedPen {
             if (!root) continue;
             if (!projections.has(root)) projections.set(root, project(root));
             const projection = projections.get(root);
-            if (projection.hash !== record.projection || projection.text.slice(record.start, record.end) !== record.text) continue;
+            if (projection.hash !== record.projection || projection.text.slice(record.start, record.end) !== record.text) { changed.push(record); continue; }
             const range = rangeFor(projection, record.start, record.end);
             if (range) entries.push({ range, record });
         }
         this.painter.paint(entries);
+        this.reportPaintGap(changed);
+    }
+    /** A message whose rendered text changed (line numbers, re-render, another
+     * extension rewriting the DOM) silently loses its red line. Say so once,
+     * and only when no generation is running, instead of leaving the user
+     * thinking the mark disappeared. */
+    reportPaintGap(records) {
+        if (!records.length || this.transport?.active) return;
+        const key = `${this.library?.key}|${records.map(r => r.id).sort().join(',')}`;
+        if (this.paintGapKey === key) return;
+        this.paintGapKey = key;
+        const numbers = records.map(r => `标记 ${r.number}`).join('、');
+        this.ui.say(`${numbers} 所在消息的显示内容与标记时不同，红线暂不显示；摘录仍保存在标记库中，可核对原文或重新选择。`);
     }
     async remove(ids) {
         const key = this.key();

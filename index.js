@@ -1,6 +1,6 @@
 // Keep the menu and startup diagnostics independent of core imports. Loading
 // failures must leave an entry that the user can open from the native wand.
-export const VERSION = '0.1.3';
+export const VERSION = '0.1.4';
 let instance, startPromise, controlPanel, bootstrapCleanup, hostTimer, generation = 0;
 function hasStorage() { try { return !!globalThis.indexedDB; } catch { return false; } }
 function element(tag, text, className) {
