@@ -1,7 +1,7 @@
 import { chromium } from 'playwright-core';
 import { createServer } from 'node:http';
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
-import { resolve, extname } from 'node:path';
+import { resolve, relative, isAbsolute, extname } from 'node:path';
 import assert from 'node:assert/strict';
 
 const root = resolve(import.meta.dirname, '..');
@@ -18,7 +18,8 @@ const server = createServer(async (req, res) => {
     }
     try {
         const path = resolve(root, '.' + (req.url === '/' ? '/tests/fixture.html' : new URL(req.url, 'http://local').pathname));
-        if (!path.startsWith(root + '/')) throw new Error('path');
+        const rel = relative(root, path);
+        if (!rel || rel.startsWith('..') || isAbsolute(rel)) throw new Error('path');
         res.setHeader('Content-Type', {'.html':'text/html; charset=utf-8','.js':'application/javascript','.css':'text/css'}[extname(path)] ?? 'application/octet-stream');
         res.end(await readFile(path));
     } catch { res.statusCode = 404; res.end('not found'); }
@@ -49,7 +50,9 @@ try {
             const selection = getSelection(); selection.removeAllRanges(); selection.addRange(range);
             document.dispatchEvent(new Event('selectionchange'));
             await new Promise(done => setTimeout(done, 400));
-            return { hidden: app.ui.action.hidden, state: app.selectionDiag.state, text: app.ui.action.textContent };
+            const result = { hidden: app.ui.action.hidden, state: app.selectionDiag.state, text: app.ui.action.textContent };
+            await app.setEnabled(false);   // 后面的用例依赖“默认关闭”
+            return result;
         });
         assert.equal(r.state, 'ok'); assert.equal(r.hidden, false); assert.match(r.text, /标记/);
     });
@@ -95,6 +98,27 @@ try {
         await page.locator('.rp-action button').filter({hasText:/^标记$/}).click();
         await page.waitForFunction(()=>app.library.records.some(r=>r.text==='保留这个'));
         assert.equal(await page.evaluate(()=>CSS.highlights.has('red-pen')),true);
+    });
+    await run('选中即标记一步完成；点中已有标记直接给出取消入口', async () => {
+        const r = await page.evaluate(async () => {
+            await app.setEnabled(true); await app.setAutoMark(true);
+            const before = app.library.records.length;
+            getSelection().removeAllRanges(); await new Promise(done=>setTimeout(done,300));
+            selectText(1,'p',0,2); document.dispatchEvent(new Event('selectionchange'));
+            await new Promise(done=>setTimeout(done,1400));
+            const added = app.library.records.length - before;
+            const addedId = added ? app.library.records.at(-1).id : null;
+            const entry = app.painter.entries[0];
+            const rect = entry.range.getClientRects()[0];
+            const x = rect.left + 3, y = rect.top + rect.height / 2;
+            document.elementFromPoint(x, y).dispatchEvent(new MouseEvent('click',{bubbles:true,clientX:x,clientY:y}));
+            await new Promise(done=>setTimeout(done,150));
+            const mode = app.ui.action.dataset.mode, text = app.ui.action.textContent;
+            await app.setAutoMark(false); await app.setEnabled(true);   // 后面的请求用例需要开启状态
+            if (addedId) await app.remove([addedId]);                    // 还原库，后续用例按 5 条断言
+            return { added, mode, text };
+        });
+        assert.equal(r.added, 1); assert.equal(r.mode, 'marked'); assert.match(r.text, /取消标记/);
     });
     await run('退出上下文仍完整发送；普通/重生成/继续/切换新回答；Google 格式转换前桥接', async () => {
         await page.evaluate(async () => {
@@ -262,13 +286,14 @@ try {
         await tab.goto(url);await tab.waitForFunction(()=>window.fixtureReady);
         await tab.locator('#extensionsMenuButton').click();await tab.getByRole('menuitem',{name:'红笔标记'}).click();
         const panel=tab.getByRole('dialog',{name:'红笔标记控制面板'});
-        assert.match(await panel.innerText(),/兼容模式/);
+        await panel.locator('summary',{hasText:'状态检查'}).click();
+        assert.match(await panel.locator('pre').innerText(),/兼容模式/);
         await panel.getByRole('button',{name:'开启标记',exact:true}).click();await tab.waitForFunction(()=>app.enabled);
         assert.equal(await tab.evaluate(()=>app.highlightMode),'overlay');
         await panel.getByRole('button',{name:'关闭',exact:true}).click();
         await tab.evaluate(async()=>{await app.add(selectText(1,'p',3,7));});
         assert.ok(await tab.locator('.rp-overlay i').count()>0,'叠加层应画出标记');
-        await tab.locator('#extensionsMenuButton').click();await tab.getByRole('menuitem',{name:'红笔标记'}).click();
+        await tab.evaluate(()=>app.controlPanel.open());await tab.waitForTimeout(80);
         await tab.getByRole('button',{name:/打开标记库/}).click();
         assert.match(await tab.getByRole('dialog',{name:'当前聊天标记库'}).innerText(),/重复句/);
         await limited.close();

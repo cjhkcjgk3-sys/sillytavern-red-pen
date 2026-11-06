@@ -1,6 +1,6 @@
 // Keep the menu and startup diagnostics independent of core imports. Loading
 // failures must leave an entry that the user can open from the native wand.
-export const VERSION = '0.1.4';
+export const VERSION = '0.1.5';
 let instance, startPromise, controlPanel, bootstrapCleanup, hostTimer, generation = 0;
 function hasStorage() { try { return !!globalThis.indexedDB; } catch { return false; } }
 function element(tag, text, className) {
@@ -25,6 +25,8 @@ export function createControlPanel(retry = initialize) {
                 panel.toggle.setAttribute('aria-pressed', String(app.enabled));
                 panel.toggle.disabled = app.canHighlight === false;
                 panel.library.textContent = `打开标记库（${app.library?.records.length ?? 0}）`;
+                panel.auto.checked = Boolean(app.autoMark);
+                panel.auto.disabled = false;
                 panel.status.textContent = (app.versionWarning ? '酒馆版本未经验证，基础标记可用。' : '') + (app.enabled ? '标记已开启，当前聊天的有效标记会参与后续请求。' : '标记已暂停，已保存内容仍保留。点击“开启标记”开始使用。');
             }
             panel.inspect();
@@ -75,12 +77,20 @@ export function createControlPanel(retry = initialize) {
         panel.update(app);
         panel.status.textContent = message;
     });
+    const autoWrap = element('label', undefined, 'rp-check');
+    panel.auto = document.createElement('input');
+    panel.auto.type = 'checkbox';
+    panel.auto.disabled = true;
+    panel.auto.addEventListener('change', () => {
+        Promise.resolve(panel.app?.setAutoMark(panel.auto.checked)).catch(e => panel.error(e));
+    });
+    autoWrap.append(panel.auto, element('span', '选中即标记（选字后约 1 秒自动保存，少点一次）'));
     controls.append(panel.toggle, panel.library, panel.mark);
     const help = element('p', '开启后，在普通聊天正文中长按选字，拖动系统选区手柄，再点击出现的“标记”。系统复制菜单仍可正常使用。', 'rp-help');
     const scope = element('p', '图片、视频和角色卡内嵌网页暂不支持选字标记。', 'rp-meta');
     panel.details = element('details'); panel.details.append(element('summary', '状态检查'));
     panel.diagnostic = element('pre'); panel.details.append(panel.diagnostic, action('重新检查启动', async () => { const app = await retry(); panel.bind(app); }));
-    panel.dialog.append(header, panel.status, controls, help, scope, panel.details); document.body.append(panel.dialog);
+    panel.dialog.append(header, panel.status, controls, autoWrap, help, scope, panel.details); document.body.append(panel.dialog);
     const mount = () => {
         const menu = document.getElementById('extensionsMenu');
         if (!menu) return false;

@@ -12,10 +12,10 @@
 .rp-control summary { min-height: 40px; cursor: pointer; }
 .rp-control pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.6; }
 #red-pen-menu-item { min-height: 44px; }
-.rp-action { position: fixed; z-index: 10010; display: flex; gap: 6px; align-items: center; padding: 6px; border: 1px solid var(--SmartThemeBorderColor, #777); border-radius: 9px; background: var(--SmartThemeBlurTintColor, #25252d); box-shadow: 0 3px 16px #0005; max-width: calc(100vw - 16px); }
+.rp-action { position: fixed; z-index: 2147483000; display: flex; gap: 6px; align-items: center; padding: 6px; border: 1px solid var(--SmartThemeBorderColor, #777); border-radius: 9px; background: var(--SmartThemeBlurTintColor, #25252d); box-shadow: 0 3px 16px #0005; max-width: calc(100vw - 16px); }
 .rp-action[hidden], .rp-toast[hidden] { display: none; }
 .rp-action button { touch-action: manipulation; }
-.rp-toast { position: fixed; z-index: 10030; left: 50%; transform: translateX(-50%); bottom: max(155px, env(safe-area-inset-bottom)); padding: 12px 16px; width: max-content; max-width: calc(100vw - 24px); background: var(--SmartThemeBlurTintColor, #25252d); border: 1px solid var(--SmartThemeBorderColor, #777); border-radius: 10px; overflow-wrap: anywhere; display: flex; gap: 12px; align-items: center; }
+.rp-toast { position: fixed; z-index: 2147483001; left: 50%; transform: translateX(-50%); bottom: max(155px, env(safe-area-inset-bottom)); padding: 12px 16px; width: max-content; max-width: calc(100vw - 24px); background: var(--SmartThemeBlurTintColor, #25252d); border: 1px solid var(--SmartThemeBorderColor, #777); border-radius: 10px; overflow-wrap: anywhere; display: flex; gap: 12px; align-items: center; }
 .rp-library { width: min(760px, calc(100vw - 24px)); max-height: 86dvh; padding: 18px; margin: auto; border: 1px solid var(--SmartThemeBorderColor, #666); border-radius: 12px; background: var(--SmartThemeBlurTintColor, #25252d); overflow: auto; overscroll-behavior: contain; }
 .rp-library::backdrop { background: #0008; }
 .rp-library header { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: 1.15em; }
@@ -46,3 +46,5 @@
 .rp-overlay { position: fixed; inset: 0; z-index: 9000; pointer-events: none; overflow: hidden; }
 .rp-overlay i { position: absolute; display: block; margin: 0; padding: 0; background: rgba(230, 55, 64, .16); border-bottom: 2px solid #ee4a53; border-radius: 2px; }
 .rp-hint { max-width: min(320px, 72vw); font-size: .92em; line-height: 1.45; overflow-wrap: anywhere; }
+.rp-check { display: flex; align-items: center; gap: 8px; min-height: 44px; margin: 10px 0 2px; cursor: pointer; }
+.rp-check input { width: 22px; height: 22px; accent-color: #d84e58; }

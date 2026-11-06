@@ -25,6 +25,7 @@ export class RedPen {
         this.highlightMode = this.painter.native ? 'native' : 'overlay';
         this.canHighlight = true;
         this.enabled = (await this.store.get('settings', this.user + ':enabled')) === true;
+        this.autoMark = (await this.store.get('settings', this.user + ':autoMark')) === true;
         this.ui = new UI(this);
         this.transport = new Transport({ host: this.host, currentKey: () => this.key(), load: key => this.store.get('libraries', key), enabled: () => this.enabled, report: () => {}, notify: message => this.ui.say(message), ready: () => this.loading ?? Promise.resolve() });
         this.transport.observeSave = data => {
@@ -87,9 +88,11 @@ export class RedPen {
         this.listen(document, 'pointerdown', e => { if (this.enabled && e.pointerType !== 'mouse' && e.target?.closest?.('#chat')) this.watchSelection(); }, { passive: true });
         this.listen(document, 'keydown', e => { if (e.key === 'Escape') this.ui.action.hidden = true; });
         this.listen(document, 'click', e => {
-            if (!this.enabled || !e.target.closest('.mes_text') || !window.getSelection()?.isCollapsed) return;
+            if (!this.enabled || !e.target.closest('.mes_text')) return;
             const hit = this.painter.hit(e.clientX, e.clientY);
+            if (!hit && !window.getSelection()?.isCollapsed) return;
             if (hit) {
+                this.cancelAutoMark();
                 this.ui.marked(hit.record);
                 this.ui.action.style.left = `${Math.max(8, Math.min(e.clientX, innerWidth - 280))}px`;
                 this.ui.action.style.top = `${Math.max(8, Math.min(e.clientY + 16, innerHeight - 110))}px`;
@@ -98,7 +101,11 @@ export class RedPen {
         this.listen(document, 'visibilitychange', () => { if (document.visibilityState === 'visible') this.refresh(); });
         if (this.channel) this.channel.onmessage = async event => {
             if (event.data?.user !== this.user) return;
-            if (event.data.setting) { this.enabled = (await this.store.get('settings', this.user + ':enabled')) === true && this.canHighlight; this.ui.action.hidden = true; }
+            if (event.data.setting) {
+                this.enabled = (await this.store.get('settings', this.user + ':enabled')) === true;
+                this.autoMark = (await this.store.get('settings', this.user + ':autoMark')) === true;
+                this.ui.action.hidden = true;
+            }
             await this.refresh();
         };
         const chat = document.getElementById('chat');
@@ -169,7 +176,30 @@ export class RedPen {
         this.channel?.postMessage({ user: this.user, key });
         return result;
     }
+    async setAutoMark(on) {
+        this.autoMark = !!on;
+        await this.store.setting(this.user + ':autoMark', this.autoMark);
+        this.cancelAutoMark();
+        this.ui.action.hidden = true;
+        this.channel?.postMessage({ user: this.user, setting: true });
+    }
+    cancelAutoMark() { clearTimeout(this.autoMarkTimer); this.autoMarkTimer = null; }
+    /** 选中即标记：选区稳定 900ms 后自动入库，长按选字只需一步。
+     * 选区还在拖动时签名会变，计时会被重置。 */
+    scheduleAutoMark() {
+        this.cancelAutoMark();
+        if (!this.autoMark || !this.enabled || !this.lastCandidate) return;
+        const candidate = this.lastCandidate, signature = this.selectionSignature;
+        this.autoMarkTimer = setTimeout(() => {
+            this.autoMarkTimer = null;
+            if (!this.autoMark || !this.enabled || this.lastCandidate !== candidate) return;
+            if (this.selectionSignature !== signature || !candidate.root.isConnected) return;
+            if (this.ui.dialog.open || this.ui.inspect.open || this.controlPanel?.dialog?.open) return;
+            this.add(candidate).catch(() => {});
+        }, 900);
+    }
     async setEnabled(on) {
+        if (!on) this.cancelAutoMark();
         await this.store.setting(this.user + ':enabled', on);
         this.enabled = on; this.ui.action.hidden = true; this.ui.update(); this.paint();
         this.channel?.postMessage({ user: this.user, setting: true });
@@ -202,7 +232,7 @@ export class RedPen {
         const diag = { at: new Date().toISOString(), source, enabled: this.enabled, dialog, collapsed: !selection || selection.isCollapsed, ranges: selection?.rangeCount ?? 0, state: '', message: '' };
         this.selectionDiag = diag;
         if (!this.enabled || dialog) { diag.state = this.enabled ? 'dialog' : 'disabled'; this.hideAction(); return; }
-        if (diag.collapsed || !diag.ranges) { diag.state = 'empty'; this.hideAction(); return; }
+        if (diag.collapsed || !diag.ranges) { diag.state = 'empty'; this.cancelAutoMark(); this.hideAction(); return; }
         const root = messageRootOf(selection.getRangeAt(0).startContainer) ?? messageRootOf(selection.getRangeAt(0).endContainer);
         if (!root) { diag.state = 'outside'; this.hideAction(); return; }
         try {
@@ -215,6 +245,7 @@ export class RedPen {
             this.lastCandidate = candidate;
             diag.state = 'ok';
             this.ui.selection(candidate);
+            this.scheduleAutoMark();
         } catch (e) {
             diag.state = 'error';
             diag.message = e.message;
@@ -235,6 +266,7 @@ export class RedPen {
         if (!this.saved.has(key)) throw new Error('未能确认聊天来源已保存；标记尚未添加，请检查服务器连接后重试');
     }
     async add(candidate) {
+        this.cancelAutoMark();
         if (!this.enabled) throw new Error('标记已暂停');
         const key = this.key();
         if (!candidate || !key || key !== candidate.chatKey || !candidate.root.isConnected) throw new Error('选区来源已变化，请重新选字');
@@ -350,7 +382,7 @@ export class RedPen {
     }
     dispose() {
         this.alive = false; this.epoch++; clearTimeout(this.selectionTimer); clearTimeout(this.paintTimer);
-        clearInterval(this.selectionWatch); this.selectionWatch = null;
+        clearInterval(this.selectionWatch); this.selectionWatch = null; this.cancelAutoMark();
         this.observer?.disconnect(); this.channel?.close();
         for (const cleanup of this.listeners.splice(0)) cleanup();
         this.painter.dispose?.(); this.painter.clear(); this.transport?.dispose(); this.store.close(); this.ui?.dispose();

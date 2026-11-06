@@ -128,7 +128,7 @@ export class UI {
         if (error) this.action.replaceChildren(node('span', `无法标记：${error}`, 'rp-hint'), this.act('关闭', () => { this.action.hidden = true; }));
         else {
             this.action.replaceChildren(this.act('标记', () => this.app.add(candidate)));
-            this.action.append(this.act('复制', () => copy(candidate.text)));
+            this.action.append(this.act('复制', () => { this.app.cancelAutoMark?.(); return copy(candidate.text); }));
         }
         this.action.hidden = false;
         const rect = candidate?.range.getBoundingClientRect();

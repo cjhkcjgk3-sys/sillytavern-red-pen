@@ -1,10 +1,14 @@
 {
   "environment": "本地 HTTP 测试夹具，非真实 SillyTavern / 安卓设备",
-  "browser": "156.0.8078.79",
-  "at": "2026-11-06T09:45:22.464Z",
+  "browser": "156.0.4314.58",
+  "at": "2026-11-06T10:55:08.966Z",
   "results": [
     {
       "name": "魔术棒唯一入口打开统一面板，可开启、暂停且没有悬浮常驻按钮",
+      "status": "通过（本地夹具）"
+    },
+    {
+      "name": "元素节点作为选区锚点时同样给出标记入口（触屏长按常见）",
       "status": "通过（本地夹具）"
     },
     {
@@ -21,6 +25,10 @@
     },
     {
       "name": "选区入口一次点击完成标记，保留复制功能",
+      "status": "通过（本地夹具）"
+    },
+    {
+      "name": "选中即标记一步完成；点中已有标记直接给出取消入口",
       "status": "通过（本地夹具）"
     },
     {
@@ -61,11 +69,11 @@
     },
     {
       "name": "性能实测数值（本地夹具）",
-      "openMs": 104,
-      "searchMs": 8,
+      "openMs": 33,
+      "searchMs": 2,
       "records": 200,
       "chars": 100000,
-      "userAgent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36"
+      "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/156.0.0.0 Safari/537.36 Edg/156.0.0.0"
     },
     {
       "name": "200 条 / 10 万字界面性能与搜索（桌面 Chromium 夹具）",
@@ -80,7 +88,7 @@
       "status": "通过（本地夹具）"
     },
     {
-      "name": "不支持高亮时仍有魔术棒前端、明确原因和可查看的已存内容库",
+      "name": "不支持 CSS 高亮时改用叠加层继续标记，内容库照常可读",
       "status": "通过（本地夹具）"
     }
   ]
