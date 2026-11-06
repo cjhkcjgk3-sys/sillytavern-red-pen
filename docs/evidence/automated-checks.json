@@ -1,0 +1,13 @@
+{
+  "date": "2026-11-06",
+  "manifest_hooks_syntax_imports": "passed: npm run check",
+  "unit_tests": {
+    "command": "npm test",
+    "passed": 11,
+    "failed": 0
+  },
+  "browser": "See browser-results.json; real Chromium on local HTTP fixtures",
+  "live_sillytavern": "not tested",
+  "real_android": "not tested",
+  "real_model_services": "not tested"
+}

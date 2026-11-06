@@ -1,0 +1,50 @@
+<!doctype html><html lang="zh-CN"><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>红笔浏览器测试夹具</title>
+<link rel="stylesheet" href="/style.css"><style>
+:root { --SmartThemeBodyColor:#ececf0; --SmartThemeBlurTintColor:#24252c; --SmartThemeBorderColor:#555963; color-scheme:dark; } body { background:#17191e; color:#ececf0; font:16px/1.6 system-ui; max-width:850px; padding:20px; margin:auto; } .mes { background:#24272e; padding:18px; margin:12px 0; border-radius:10px; } button { color:inherit; background:#333740; border:1px solid #686b76; } .mes_text { user-select:text; -webkit-user-select:text; } .rp-record pre { color:inherit; } pre { white-space:pre-wrap; } .menu_button { display:inline-block; } h1 { font-size:22px; } .fixture-note { color:#b8bbc7; }
+</style><h1>红笔标记 · 本地测试夹具</h1><p class="fixture-note">这是模拟聊天页面，用于验证选区和界面，不是真实酒馆。</p><main id="chat"></main>
+<script type="module">
+window.__RED_PEN_TEST__ = true;
+const { RedPen } = await import('/index.js');
+const { captureSelection, project } = await import('/src/dom.js');
+const { messageKey, versionKey, fingerprint } = await import('/src/core.js');
+class Events {
+    constructor(){ this.listeners = new Map(); }
+    on(name, fn) { const list = this.listeners.get(name) ?? []; list.push(fn); this.listeners.set(name, list); }
+    removeListener(name, fn) { this.listeners.set(name, (this.listeners.get(name) ?? []).filter(f => f !== fn)); }
+    async emit(name, ...args) { for (const fn of [...this.listeners.get(name) ?? []]) await fn(...args); }
+}
+const eventTypes = Object.fromEntries(['CHAT_CHANGED','CHAT_RENAMED','GENERATION_STARTED','GENERATION_ENDED','GENERATION_STOPPED','MESSAGE_EDITED','MESSAGE_DELETED','MESSAGE_SWIPED','MESSAGE_SWIPE_DELETED','MESSAGE_UPDATED','USER_MESSAGE_RENDERED','CHARACTER_MESSAGE_RENDERED','MORE_MESSAGES_LOADED','CHAT_DELETED','GROUP_CHAT_DELETED'].map(x => [x,x]));
+const messages = [
+    {name:'你',is_user:true,send_date:'day-1',mes:'保留这个设定，其他内容请重新整理。'},
+    {name:'角色',is_user:false,send_date:'day-2',mes:'起点。重复句。重复句。'},
+    {name:'角色',is_user:false,send_date:'day-3',mes:'多段格式示例'},
+    {name:'角色',is_user:false,send_date:'day-4',mes:'  let x = 1;\n    return x;\n'},
+    {name:'角色',is_user:false,send_date:'day-5',mes:'表格示例'},
+];
+const html = [
+    '<p>保留这个设定，其他内容请重新整理。</p>',
+    '<p>起点。重复句。重复句。</p>',
+    '<h3>标题</h3><p>第一段<strong>粗体</strong>尾句。</p><p>第二段<span hidden>隐藏内容</span>正文。</p><ul><li>列表甲</li><li>列表乙</li></ul><blockquote><p>引用文本</p></blockquote><details><summary>折叠思考</summary><p>不应摘录的思考</p></details>',
+    '<pre><button class="code-copy">复制</button><code>  let x = 1;\n    return x;\n</code></pre>',
+    '<table><tbody><tr><td>单元格甲</td><td>单元格乙</td></tr></tbody></table>',
+];
+window.context = { chat: structuredClone(messages), chatId:'聊天 A', chatMetadata:{integrity:'integrity-a'}, characters:[{name:'角色',avatar:'avatar.png'}], characterId:0, groupId:null, mainApi:'openai', eventSource:new Events(), eventTypes, chatCompletionSettings:{openai_max_context:200000}, getTokenCountAsync:async text => Math.ceil(text.length/2), getCurrentChatId:()=>context.chatId, accountStorage:{}, getRequestHeaders:()=>({'Content-Type':'application/json'}) };
+context.saveMetadata = async () => {
+    const response = await fetch('/api/chats/save', { method:'POST',headers:context.getRequestHeaders(), body:JSON.stringify({ avatar_url:'avatar.png', file_name:context.chatId, chat:[{chat_metadata:context.chatMetadata},...context.chat] }) });
+    if (!response.ok) return; // Match the host's swallowed save errors.
+};
+window.draw = () => { document.getElementById('chat').innerHTML = context.chat.map((m,i) => `<div class="mes" mesid="${i}"><small>${m.name}</small><div class="mes_text">${html[i] ?? '<p>性能测试正文</p>'}</div></div>`).join(''); };
+draw();
+window.app = new RedPen(()=>context,'fixture-user');
+await app.initialize();
+window.selectText = (index, selector, start, end) => {
+    const root = document.querySelector(`.mes[mesid="${index}"] .mes_text`), element = root.querySelector(selector);
+    const text = element.firstChild;
+    const range = document.createRange(); range.setStart(text,start); range.setEnd(text,end);
+    const selection = getSelection(); selection.removeAllRanges(); selection.addRange(range);
+    const result = captureSelection(); result.chatKey = app.key(); result.version = versionKey(context.chat[index]); return result;
+};
+window.makeRecord = (i, text, start=0) => ({id:'perf-'+i,number:i+1,text,createdAt:new Date().toISOString(),projection:'fixture',start,end:start+text.length,source:{messageKey:'absent-'+i,version:'fixture',messageIndex:i,swipeIndex:0,speaker:'角色',role:'assistant'}});
+window.fixture = { messages, html, captureSelection, project, messageKey, versionKey, fingerprint };
+window.fixtureReady = true;
+</script></html>
