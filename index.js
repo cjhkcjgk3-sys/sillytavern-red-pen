@@ -1,6 +1,6 @@
 // Keep the menu and startup diagnostics independent of core imports. Loading
 // failures must leave an entry that the user can open from the native wand.
-export const VERSION = '0.1.5';
+export const VERSION = '0.1.6';
 let instance, startPromise, controlPanel, bootstrapCleanup, hostTimer, generation = 0;
 function hasStorage() { try { return !!globalThis.indexedDB; } catch { return false; } }
 function element(tag, text, className) {
@@ -27,6 +27,8 @@ export function createControlPanel(retry = initialize) {
                 panel.library.textContent = `打开标记库（${app.library?.records.length ?? 0}）`;
                 panel.auto.checked = Boolean(app.autoMark);
                 panel.auto.disabled = false;
+                panel.delay.value = String(app.autoMarkDelay ?? 1);
+                panel.delay.disabled = false;
                 panel.status.textContent = (app.versionWarning ? '酒馆版本未经验证，基础标记可用。' : '') + (app.enabled ? '标记已开启，当前聊天的有效标记会参与后续请求。' : '标记已暂停，已保存内容仍保留。点击“开启标记”开始使用。');
             }
             panel.inspect();
@@ -84,7 +86,17 @@ export function createControlPanel(retry = initialize) {
     panel.auto.addEventListener('change', () => {
         Promise.resolve(panel.app?.setAutoMark(panel.auto.checked)).catch(e => panel.error(e));
     });
-    autoWrap.append(panel.auto, element('span', '选中即标记（选字后约 1 秒自动保存，少点一次）'));
+    autoWrap.append(panel.auto, element('span', '选中即标记（少点一次）'));
+    panel.delay = document.createElement('input');
+    panel.delay.type = 'number';
+    panel.delay.min = '0.5'; panel.delay.max = '30'; panel.delay.step = '0.5'; panel.delay.value = '1';
+    panel.delay.className = 'text_pole rp-delay';
+    panel.delay.disabled = true;
+    panel.delay.setAttribute('aria-label', '自动标记延迟（秒）');
+    panel.delay.addEventListener('change', () => {
+        Promise.resolve(panel.app?.setAutoMarkDelay(panel.delay.value)).then(value => { if (value) panel.delay.value = String(value); }).catch(e => panel.error(e));
+    });
+    autoWrap.append(panel.delay, element('span', '秒后自动保存'));
     controls.append(panel.toggle, panel.library, panel.mark);
     const help = element('p', '开启后，在普通聊天正文中长按选字，拖动系统选区手柄，再点击出现的“标记”。系统复制菜单仍可正常使用。', 'rp-help');
     const scope = element('p', '图片、视频和角色卡内嵌网页暂不支持选字标记。', 'rp-meta');

@@ -123,11 +123,13 @@ export class UI {
         }
         this.list.replaceChildren(fragment);
     }
-    selection(candidate, error) {
+    selection(candidate, error, overlap = 0) {
         this.action.dataset.mode = 'selection';
         if (error) this.action.replaceChildren(node('span', `无法标记：${error}`, 'rp-hint'), this.act('关闭', () => { this.action.hidden = true; }));
         else {
             this.action.replaceChildren(this.act('标记', () => this.app.add(candidate)));
+            // 选中范围盖住已有标记时，同一入口直接给取消。
+            if (overlap) this.action.append(this.act(`取消标记（${overlap}）`, () => this.app.removeSelectionOverlap()));
             this.action.append(this.act('复制', () => { this.app.cancelAutoMark?.(); return copy(candidate.text); }));
         }
         this.action.hidden = false;

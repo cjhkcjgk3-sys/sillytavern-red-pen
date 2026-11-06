@@ -1,4 +1,4 @@
-import { addRecord, clone, exportBackup, fingerprint, inheritRecords, messageKey, mergeBackup, newLibrary, sourceStatus, uuid, validateBackup, versionKey } from './core.js';
+import { addRecord, clone, exportBackup, fingerprint, inheritRecords, material, mergeBackup, mergeRecord, messageKey, newLibrary, sourceStatus, uuid, validateBackup, versionKey } from './core.js';
 import { chatIdentity, needsSeparateScope, SCOPE } from './compat.js';
 import { Store } from './store.js';
 import { captureSelection, messageRootOf, Painter, project, rangeFor } from './dom.js';
@@ -26,6 +26,7 @@ export class RedPen {
         this.canHighlight = true;
         this.enabled = (await this.store.get('settings', this.user + ':enabled')) === true;
         this.autoMark = (await this.store.get('settings', this.user + ':autoMark')) === true;
+        this.autoMarkDelay = Math.min(30, Math.max(0.5, Number(await this.store.get('settings', this.user + ':autoMarkDelay')) || 1));
         this.ui = new UI(this);
         this.transport = new Transport({ host: this.host, currentKey: () => this.key(), load: key => this.store.get('libraries', key), enabled: () => this.enabled, report: () => {}, notify: message => this.ui.say(message), ready: () => this.loading ?? Promise.resolve() });
         this.transport.observeSave = data => {
@@ -104,6 +105,7 @@ export class RedPen {
             if (event.data.setting) {
                 this.enabled = (await this.store.get('settings', this.user + ':enabled')) === true;
                 this.autoMark = (await this.store.get('settings', this.user + ':autoMark')) === true;
+                this.autoMarkDelay = Math.min(30, Math.max(0.5, Number(await this.store.get('settings', this.user + ':autoMarkDelay')) || 1));
                 this.ui.action.hidden = true;
             }
             await this.refresh();
@@ -183,12 +185,19 @@ export class RedPen {
         this.ui.action.hidden = true;
         this.channel?.postMessage({ user: this.user, setting: true });
     }
+    async setAutoMarkDelay(seconds) {
+        this.autoMarkDelay = Math.min(30, Math.max(0.5, Number(seconds) || 1));
+        await this.store.setting(this.user + ':autoMarkDelay', this.autoMarkDelay);
+        this.cancelAutoMark();
+        this.channel?.postMessage({ user: this.user, setting: true });
+        return this.autoMarkDelay;
+    }
     cancelAutoMark() { clearTimeout(this.autoMarkTimer); this.autoMarkTimer = null; }
     /** 选中即标记：选区稳定 900ms 后自动入库，长按选字只需一步。
      * 选区还在拖动时签名会变，计时会被重置。 */
     scheduleAutoMark() {
         this.cancelAutoMark();
-        if (!this.autoMark || !this.enabled || !this.lastCandidate) return;
+        if (!this.autoMark || !this.enabled || !this.lastCandidate || this.selectionOverlap?.length) return;
         const candidate = this.lastCandidate, signature = this.selectionSignature;
         this.autoMarkTimer = setTimeout(() => {
             this.autoMarkTimer = null;
@@ -196,7 +205,7 @@ export class RedPen {
             if (this.selectionSignature !== signature || !candidate.root.isConnected) return;
             if (this.ui.dialog.open || this.ui.inspect.open || this.controlPanel?.dialog?.open) return;
             this.add(candidate).catch(() => {});
-        }, 900);
+        }, Math.round(this.autoMarkDelay * 1000));
     }
     async setEnabled(on) {
         if (!on) this.cancelAutoMark();
@@ -232,7 +241,7 @@ export class RedPen {
         const diag = { at: new Date().toISOString(), source, enabled: this.enabled, dialog, collapsed: !selection || selection.isCollapsed, ranges: selection?.rangeCount ?? 0, state: '', message: '' };
         this.selectionDiag = diag;
         if (!this.enabled || dialog) { diag.state = this.enabled ? 'dialog' : 'disabled'; this.hideAction(); return; }
-        if (diag.collapsed || !diag.ranges) { diag.state = 'empty'; this.cancelAutoMark(); this.hideAction(); return; }
+        if (diag.collapsed || !diag.ranges) { diag.state = 'empty'; this.selectionOverlap = []; this.cancelAutoMark(); this.hideAction(); return; }
         const root = messageRootOf(selection.getRangeAt(0).startContainer) ?? messageRootOf(selection.getRangeAt(0).endContainer);
         if (!root) { diag.state = 'outside'; this.hideAction(); return; }
         try {
@@ -243,14 +252,32 @@ export class RedPen {
             candidate.chatKey = this.key();
             candidate.version = versionKey(message);
             this.lastCandidate = candidate;
+            this.selectionOverlap = this.overlappingRecords(candidate);
             diag.state = 'ok';
-            this.ui.selection(candidate);
+            this.ui.selection(candidate, undefined, this.selectionOverlap.length);
             this.scheduleAutoMark();
         } catch (e) {
             diag.state = 'error';
             diag.message = e.message;
             this.ui.selection(null, e.message);
         }
+    }
+    /** 与当前选区重叠的本地标记（同一消息、同一回答版本）。 */
+    overlappingRecords(candidate) {
+        const message = this.host().chat?.[candidate.index];
+        if (!message || !this.library || !this.library.records?.length) return [];
+        const sourceKey = messageKey(message);
+        return this.library.records.filter(r => !r.detached && r.source.messageKey === sourceKey && r.source.version === candidate.version && r.start < candidate.end && candidate.start < r.end);
+    }
+    /** 选中即取消：删掉与当前选区重叠的标记，提示条带撤销。 */
+    async removeSelectionOverlap() {
+        const ids = (this.selectionOverlap ?? []).map(r => r.id);
+        if (!ids.length) throw new Error('当前选区没有可取消的标记');
+        await this.remove(ids);
+        this.selectionOverlap = [];
+        window.getSelection()?.removeAllRanges();
+        this.ui.action.hidden = true;
+        return `已取消 ${ids.length} 条标记`;
     }
     hideAction() { if (this.ui.action.dataset.mode !== 'marked') this.ui.action.hidden = true; }
     /** Manual entry for 状态检查 / hosts where the floating entry is unreachable. */
@@ -282,12 +309,19 @@ export class RedPen {
         this.ui.say('正在保存标记…');
         await this.ensureChatIdentitySaved(key);
         if (key !== this.key() || !this.enabled || versionKey(this.host().chat[candidate.index]) !== candidate.version || project(candidate.root).hash !== candidate.projection) throw new Error('来源或开关已变化，请重新选字');
-        const result = await this.mutate(key, lib => addRecord(lib, {
-            text: candidate.text, start: candidate.start, end: candidate.end, projection: candidate.projection,
-            source: { messageKey: sourceKey, version: candidate.version, rawHash: fingerprint(message.mes), speaker: message.name, role: message.is_user ? 'user' : 'assistant', messageIndex: candidate.index, swipeIndex: message.swipe_id ?? 0 },
-        }));
+        const result = await this.mutate(key, lib => {
+            const source = { messageKey: sourceKey, version: candidate.version, rawHash: fingerprint(message.mes), speaker: message.name, role: message.is_user ? 'user' : 'assistant', messageIndex: candidate.index, swipeIndex: message.swipe_id ?? 0 };
+            // 扩大选区会合并进已有的同版本标记（保留最小编号），选择取消时走 removeSelectionOverlap。
+            const overlapping = lib.records.filter(r => !r.detached && r.source.messageKey === sourceKey && r.source.version === candidate.version && r.start < candidate.end && candidate.start < r.end);
+            const start = overlapping.reduce((min, r) => Math.min(min, r.start), candidate.start);
+            const end = overlapping.reduce((max, r) => Math.max(max, r.end), candidate.end);
+            return mergeRecord(lib, { text: projection.text.slice(start, end), start, end, projection: candidate.projection, source });
+        });
         this.ui.action.hidden = true; window.getSelection()?.removeAllRanges();
-        const notice = result.value ? '已标记并保存' : '这段原文已标记，无需重复添加';
+        this.selectionOverlap = [];
+        // mutate() 返回 { value, library }，这里 value 是 mergeRecord 的结果对象。
+        const outcome = result.value ?? { value: false };
+        const notice = !outcome.value ? '这段原文已标记，无需重复添加' : outcome.merged ? `已合并为一条标记（标记 ${outcome.number}）` : '已标记并保存';
         this.ui.say(notice);
         return notice;
     }

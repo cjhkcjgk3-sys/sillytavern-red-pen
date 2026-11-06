@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { addRecord, clone, exportBackup, fingerprint, inheritRecords, material, messageKey, mergeBackup, newLibrary, sourceStatus, validateBackup, versionKey } from '../src/core.js';
+import { addRecord, clone, exportBackup, fingerprint, inheritRecords, material, mergeBackup, mergeRecord, messageKey, newLibrary, sourceStatus, validateBackup, versionKey } from '../src/core.js';
 import { appendMaterial, Transport } from '../src/transport.js';
 import { trimBlankEdges } from '../src/dom.js';
 
@@ -128,4 +128,17 @@ test('触屏手柄常带的边界空白只裁掉两端空白，代码缩进与�
     const code = [...'  let x = 1;'].map(text => ({ text }));
     assert.equal(trimBlankEdges(code, 0, code.length).start, 2, '边界不可信时才裁');
     assert.equal(trimBlankEdges(code, 0, code.length, { head: false }).start, 0, '起点已对齐时保留代码缩进');
+});
+
+test('重叠记录合并：保留最小编号并采用新范围，完全相同的重复不新增', () => {
+    const lib = library();
+    const merged = mergeRecord(lib, record(2, 10, '第二句。重复句。'));
+    assert.equal(merged.merged, 1);
+    assert.equal(lib.records.length, 1);
+    assert.equal(lib.records[0].number, 1, '合并后保留原编号');
+    assert.equal(lib.records[0].start, 2); assert.equal(lib.records[0].end, 10);
+    assert.equal(lib.records[0].text, '第二句。重复句。');
+    const dup = mergeRecord(lib, record(2, 10, '第二句。重复句。'));
+    assert.equal(dup.value, false);
+    assert.equal(lib.records.length, 1);
 });

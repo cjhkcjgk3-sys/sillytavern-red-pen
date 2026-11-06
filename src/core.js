@@ -36,6 +36,25 @@ export function addRecord(lib, record) {
     lib.records.push({ ...record, id: uuid(), number: lib.nextNumber++, createdAt: new Date().toISOString() });
     return true;
 }
+/** Add a record; overlapping records on the same message version are merged
+ * into one (lowest number wins) so expanding a selection extends the mark
+ * instead of failing with "范围重叠". */
+export function mergeRecord(lib, record) {
+    const same = lib.records.filter(r => !r.detached && r.source.messageKey === record.source.messageKey && r.source.version === record.source.version && r.start < record.end && record.start < r.end);
+    if (!same.length) return { merged: 0, value: addRecord(lib, record) };
+    if (same.length === 1 && same[0].start === record.start && same[0].end === record.end && same[0].text === record.text) return { merged: 0, value: false, number: same[0].number };
+    const keep = same.reduce((a, b) => (a.number <= b.number ? a : b));
+    const ids = new Set(same.map(r => r.id));
+    lib.records = lib.records.filter(r => !ids.has(r.id));
+    keep.start = record.start;
+    keep.end = record.end;
+    keep.text = record.text;
+    keep.projection = record.projection;
+    keep.createdAt = record.createdAt;
+    lib.records.push(keep);
+    lib.records.sort((a, b) => a.number - b.number);
+    return { merged: same.length, value: true, number: keep.number };
+}
 export function sourceStatus(record, chat) {
     if (record.detached) return { text: '无法定位（从其他聊天恢复）' };
     if (record.source.versionRemoved) return { text: '来源已删除（原回答版本已删除）' };

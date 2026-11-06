@@ -66,17 +66,35 @@ try {
         });
         assert.equal(r.off,false); assert.equal(r.text,'重复句。'); assert.equal(r.range,r.text); assert.equal(r.entries,1); assert.equal(r.same,true);
     });
-    await run('幂等、部分重叠拒绝、同句不同位置、取消与撤销原编号', async () => {
+    await run('重复范围幂等；扩大选区合并为一条并保留原编号，删掉后库回到原状', async () => {
         const r = await page.evaluate(async () => {
-            await app.add(selectText(1,'p',3,7));
-            let overlap=''; try { await app.add(selectText(1,'p',5,9)); } catch(e){ overlap=e.message; }
-            await app.add(selectText(1,'p',7,11));
-            const ids = app.library.records.map(r=>r.id); await app.remove([ids[0]]);
-            app.ui.toast.querySelector('button').click();
-            await new Promise(r=>setTimeout(r,100));
-            return { overlap, numbers:app.library.records.map(r=>r.number), count:app.painter.entries.length };
+            const before = app.library.records.length;
+            await app.add(selectText(0,'p',5,9));                             // 定，其他
+            const dup = await app.add(selectText(0,'p',5,9));                 // 同一范围重复
+            const first = app.library.records.find(x => x.start === 5 && x.end === 9);
+            const merged = await app.add(selectText(0,'p',7,12));             // 扩大成 5..12
+            const rec = app.library.records.find(x => x.id === first.id);
+            await app.remove([first.id]);
+            return { before, dup, merged, number: rec?.number, text: rec?.text, start: rec?.start, end: rec?.end, after: app.library.records.length };
         });
-        assert.match(r.overlap,/重叠/); assert.deepEqual(r.numbers,[1,2]); assert.equal(r.count,2);
+        assert.match(r.dup,/无需重复添加/);
+        assert.match(r.merged,/合并/);
+        assert.equal(r.text,'定，其他内容请'); assert.equal(r.start,5); assert.equal(r.end,12);
+        assert.ok(Number.isInteger(r.number), '合并后保留原编号');
+        assert.equal(r.after, r.before);
+    });
+    await run('选中已有标记直接给出取消入口，取消后回到原状', async () => {
+        const r = await page.evaluate(async () => {
+            await app.add(selectText(0,'p',5,9));
+            const before = app.library.records.length;
+            selectText(0,'p',5,9); document.dispatchEvent(new Event('selectionchange'));
+            await new Promise(d=>setTimeout(d,400));
+            const chip = app.ui.action.textContent, mode = app.ui.action.dataset.mode;
+            await app.removeSelectionOverlap();
+            return { chip, mode, before, after: app.library.records.length };
+        });
+        assert.match(r.chip,/取消标记/); assert.equal(r.mode,'selection');
+        assert.equal(r.after, r.before - 1);
     });
     await run('代码缩进和换行；多段/列表/引用；隐藏文本不混入；跨单元格拒绝', async () => {
         const r = await page.evaluate(async () => {
@@ -120,6 +138,24 @@ try {
         });
         assert.equal(r.added, 1); assert.equal(r.mode, 'marked'); assert.match(r.text, /取消标记/);
     });
+    await run('选中即标记的延迟可调（2 秒）', async () => {
+        const r = await page.evaluate(async () => {
+            await app.setEnabled(true); await app.setAutoMark(true); await app.setAutoMarkDelay(2);
+            const before = app.library.records.length;
+            getSelection().removeAllRanges(); await new Promise(done=>setTimeout(done,300));
+            selectText(4,'td',0,2); document.dispatchEvent(new Event('selectionchange'));
+            await new Promise(done=>setTimeout(done,1300));
+            const mid = app.library.records.length;
+            await new Promise(done=>setTimeout(done,1300));
+            const after = app.library.records.length;
+            const added = app.library.records.at(-1);
+            if (after > before) await app.remove([added.id]);
+            await app.setAutoMarkDelay(1); await app.setAutoMark(false); await app.setEnabled(true);
+            return { before, mid, after };
+        });
+        assert.equal(r.mid, r.before, '1.3 秒时不应入库');
+        assert.equal(r.after, r.before + 1, '2 秒后入库');
+    });
     await run('退出上下文仍完整发送；普通/重生成/继续/切换新回答；Google 格式转换前桥接', async () => {
         await page.evaluate(async () => {
             for (const type of ['normal','regenerate','continue','swipe']) {
@@ -128,8 +164,18 @@ try {
                 await context.eventSource.emit('GENERATION_ENDED');
             }
         });
+        const expected = await page.evaluate(()=>app.library.records.length);
         assert.equal(received.length,4);
-        for (const payload of received) { assert.equal(payload.messages.length,2); const block=payload.messages[0].content; const records=JSON.parse(block.slice(block.indexOf('[\n'))); assert.equal(records.length,5); assert.equal(records[0].text,'重复句。'); assert.equal(records[2].text,'  let x = 1;\n    return x;\n'); assert.equal(payload.messages.at(-1).content,'只有最后一轮上下文'); }
+        for (const payload of received) {
+            assert.equal(payload.messages.length,2);
+            const block=payload.messages[0].content;
+            const records=JSON.parse(block.slice(block.indexOf('[\n')));
+            const texts=records.map(r=>r.text);
+            assert.equal(records.length,expected);
+            assert.ok(texts.includes('重复句。'), '应包含已标记的重复句');
+            assert.ok(texts.includes('  let x = 1;\n    return x;\n'), '应包含代码块原文');
+            assert.equal(payload.messages.at(-1).content,'只有最后一轮上下文');
+        }
     });
     await run('开关隐藏高亮、后续零附加、后台 quiet 请求不附加', async () => {
         await page.evaluate(async () => {
@@ -145,6 +191,7 @@ try {
         assert.equal(received.at(-2).messages.length,0); assert.equal(received.at(-1).messages.length,0);
     });
     await run('刷新恢复；聊天隔离；编辑、删除和其他回答版本不误标', async () => {
+        const beforeReload = await page.evaluate(()=>app.library.records.length);
         await page.reload(); await page.waitForFunction(()=>window.fixtureReady);
         const r=await page.evaluate(async()=>{
             const originalKey=app.key(), originalText=app.library.records[0].text;
@@ -157,7 +204,7 @@ try {
             context.chat=structuredClone(fixture.messages);draw();app.paint();
             return{initial,b,key:originalKey===app.key(),edited,swipe,deleted,text:app.library.records[0].text,originalText};
         });
-        assert.deepEqual(r.initial,{count:5,enabled:true});assert.equal(r.b,0);assert.equal(r.key,true);assert.match(r.edited,/修改/);assert.match(r.swipe,/版本当前未显示/);assert.match(r.deleted,/已删除/);assert.equal(r.text,r.originalText);
+        assert.deepEqual(r.initial,{count:beforeReload,enabled:true});assert.equal(r.b,0);assert.equal(r.key,true);assert.match(r.edited,/修改/);assert.match(r.swipe,/版本当前未显示/);assert.match(r.deleted,/已删除/);assert.equal(r.text,r.originalText);
     });
     await run('原生聊天保存失败不显示成功；IndexedDB 事务失败原库不变', async()=>{
         saveFailure=true;
@@ -177,22 +224,26 @@ try {
         const r=await page.evaluate(async()=>{
             context.chatId='聊天 A';context.chatMetadata={integrity:'integrity-a'};await app.refresh();await app.ui.open();
             app.ui.search.value='重复句';app.ui.search.dispatchEvent(new Event('input'));
+            const matching=app.library.records.filter(r=>r.text.includes('重复句')).length;
             app.ui.selectAll.checked=true;app.ui.selectAll.dispatchEvent(new Event('change'));const selected=app.ui.selected.size;
             app.ui.search.value='代码';app.ui.search.dispatchEvent(new Event('input'));const cleared=app.ui.selected.size;
-            const {exportBackup,mergeBackup}=await import('/src/core.js');const backup=exportBackup(app.library);const result=await app.mutate(app.key(),lib=>mergeBackup(lib,backup));
-            app.ui.dialog.close();return{selected,cleared,skipped:result.value.skipped,count:app.library.records.length};
-        });assert.deepEqual(r,{selected:2,cleared:0,skipped:5,count:5});
+            const {exportBackup,mergeBackup}=await import('/src/core.js');const backup=exportBackup(app.library);const total=backup.records.length;const result=await app.mutate(app.key(),lib=>mergeBackup(lib,backup));
+            app.ui.dialog.close();return{selected,cleared,skipped:result.value.skipped,count:app.library.records.length,total,matching};
+        });assert.equal(r.selected,r.matching);assert.ok(r.matching>0);assert.equal(r.cleared,0);assert.equal(r.skipped,r.total);assert.equal(r.count,r.total);
     });
     await run('聊天重命名保持库；分支只继承消息范围内标记，父子独立', async()=>{
         const result=await page.evaluate(async()=>{
             const parentKey=app.key();context.chatId='聊天 A 已重命名';await app.refresh();const renamed=app.library.records.length;
             const parentRecords=structuredClone(app.library.records);
-            context.chatId='分支';context.chatMetadata={integrity:'branch-a',main_chat:'聊天 A 已重命名'};context.chat=context.chat.slice(0,2);draw();await app.refresh();
+            const {sourceStatus}=await import('/src/core.js');
+            context.chatId='分支';context.chatMetadata={integrity:'branch-a',main_chat:'聊天 A 已重命名'};context.chat=context.chat.slice(0,2);
+            const expectedInherited=parentRecords.filter(r=>['可定位','原回答版本当前未显示'].includes(sourceStatus(r,context.chat).text)).map(r=>r.number);
+            draw();await app.refresh();
             const inherited=app.library.records.map(r=>r.number);await app.remove([app.library.records[0].id]);
             const parent=await app.store.get('libraries',parentKey);
             context.chat=structuredClone(fixture.messages);context.chatId='聊天 A';context.chatMetadata={integrity:'integrity-a'};draw();await app.refresh();
-            return{renamed,inherited,parentSame:JSON.stringify(parent.records)===JSON.stringify(parentRecords)};
-        });assert.equal(result.renamed,5);assert.deepEqual(result.inherited,[1,2,5]);assert.equal(result.parentSame,true);
+            return{renamed,inherited,expectedInherited,parentSame:JSON.stringify(parent.records)===JSON.stringify(parentRecords)};
+        });assert.equal(result.renamed,await page.evaluate(()=>app.library.records.length));assert.deepEqual(result.inherited,result.expectedInherited);assert.equal(result.parentSame,true);
     });
     await run('相同文字的两个回答版本独立；删除前一版本后不会串位', async()=>{
         const result=await page.evaluate(async()=>{
@@ -210,7 +261,10 @@ try {
     await run('1.18 共用原生 integrity 的分支、重命名及分支再分支独立持久化', async()=>{
         const result=await page.evaluate(async()=>{
             const parentKey=app.key();const parentRecords=structuredClone(app.library.records);
-            context.chatId='1.18分支';context.chatMetadata={integrity:'integrity-a',main_chat:'聊天 A'};context.chat=context.chat.slice(0,2);draw();await app.refresh();
+            const {sourceStatus:branchStatus}=await import('/src/core.js');
+            context.chatId='1.18分支';context.chatMetadata={integrity:'integrity-a',main_chat:'聊天 A'};context.chat=context.chat.slice(0,2);
+            const expectedInherited=parentRecords.filter(r=>['可定位','原回答版本当前未显示'].includes(branchStatus(r,context.chat).text)).map(r=>r.number);
+            draw();await app.refresh();
             const scope=context.chatMetadata.red_pen_scope_v1,key=app.key(),inherited=app.library.records.map(r=>r.number);
             await app.remove([app.library.records[0].id]);
             context.chatId='1.18分支改名';await app.refresh();const renamed=app.key()===key;
@@ -220,8 +274,8 @@ try {
             const parent=await app.store.get('libraries',parentKey);
             const branch=await app.store.get('libraries',key);
             context.chat=structuredClone(fixture.messages);context.chatId='聊天 A';context.chatMetadata={integrity:'integrity-a'};draw();await app.refresh();
-            return{inherited,renamed,grandchild,branchCount,branchKept:branch.records.length===branchCount,parentKept:JSON.stringify(parent.records)===JSON.stringify(parentRecords),nativeIntegrity:context.chatMetadata.integrity};
-        });assert.deepEqual(result.inherited,[1,2,5]);assert.equal(result.renamed,true);assert.equal(result.grandchild,true);assert.equal(result.branchKept,true);assert.equal(result.parentKept,true);assert.equal(result.nativeIntegrity,'integrity-a');
+            return{inherited,expectedInherited,renamed,grandchild,branchCount,branchKept:branch.records.length===branchCount,parentKept:JSON.stringify(parent.records)===JSON.stringify(parentRecords),nativeIntegrity:context.chatMetadata.integrity};
+        });assert.deepEqual(result.inherited,result.expectedInherited);assert.equal(result.renamed,true);assert.equal(result.grandchild,true);assert.equal(result.branchKept,true);assert.equal(result.parentKept,true);assert.equal(result.nativeIntegrity,'integrity-a');
     });
     await run('1.18 分支隔离标识保存失败不读取或发送父库', async()=>{
         saveFailure=true;
