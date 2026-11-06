@@ -1,4 +1,5 @@
-import { addRecord, clone, exportBackup, fingerprint, inheritRecords, messageKey, mergeBackup, newLibrary, sourceStatus, validateBackup, versionKey } from './src/core.js';
+import { addRecord, clone, exportBackup, fingerprint, inheritRecords, messageKey, mergeBackup, newLibrary, sourceStatus, uuid, validateBackup, versionKey } from './src/core.js';
+import { chatIdentity, needsSeparateScope, SCOPE } from './src/compat.js';
 import { Store } from './src/store.js';
 import { captureSelection, Painter, project, rangeFor } from './src/dom.js';
 import { Transport } from './src/transport.js';
@@ -15,10 +16,7 @@ export class RedPen {
         this.channel = typeof BroadcastChannel === 'function' ? new BroadcastChannel(ID) : null;
     }
     identity(context = this.host()) {
-        if (!context.chatId || !context.chatMetadata?.integrity) return null;
-        const owner = JSON.stringify([this.user, context.groupId ? 'group' : 'character', context.groupId || context.characters[context.characterId]?.avatar]);
-        if (!context.groupId && !context.characters[context.characterId]?.avatar) return null;
-        return { owner, key: JSON.stringify([owner, context.chatMetadata.integrity]), label: context.chatId };
+        return chatIdentity(context, this.user);
     }
     key() { return this.identity()?.key; }
     async initialize() {
@@ -31,7 +29,7 @@ export class RedPen {
             const current = this.host();
             const identity = this.identity(current);
             const matchingOwner = current.groupId ? data.id === current.chatId : data.avatar_url === current.characters[current.characterId]?.avatar && data.file_name === current.chatId;
-            if (identity && matchingOwner && integrity === current.chatMetadata.integrity) this.saved.add(identity.key);
+            if (identity && matchingOwner && integrity === current.chatMetadata.integrity && data.chat[0].chat_metadata[SCOPE] === current.chatMetadata[SCOPE]) this.saved.add(identity.key);
         };
         this.transport.install();
         this.interceptor = (_chat, _size, abort) => {
@@ -98,22 +96,53 @@ export class RedPen {
         await this.refresh();
     }
     listen(target, type, fn) { target.addEventListener(type, fn); this.listeners.push(() => target.removeEventListener(type, fn)); }
+    async prepareIdentity() {
+        const context = this.host(), metadata = context.chatMetadata;
+        const initial = this.identity(context);
+        if (!initial) return null;
+        if (this.scopePreparation?.metadata === metadata) return this.scopePreparation.promise;
+        const preparation = { metadata };
+        preparation.promise = (async () => {
+            const lib = await this.store.get('libraries', initial.key);
+            if (this.host().chatMetadata !== metadata || this.host().chatId !== initial.label || !this.alive) throw new Error('聊天已切换，已停止准备标记库');
+            if (!needsSeparateScope(context, initial, lib)) return initial;
+            const previous = metadata[SCOPE];
+            metadata[SCOPE] = uuid();
+            const separated = this.identity(context);
+            try {
+                await context.saveMetadata();
+                if (!this.saved.has(separated.key)) throw new Error('聊天隔离标识未能保存，未启用此聊天的标记库；请检查服务器连接后重试');
+                return separated;
+            } catch (e) {
+                if (previous === undefined) delete metadata[SCOPE]; else metadata[SCOPE] = previous;
+                throw e;
+            }
+        })();
+        this.scopePreparation = preparation;
+        try { return await preparation.promise; } finally { if (this.scopePreparation === preparation) this.scopePreparation = null; }
+    }
     async refresh() {
         const epoch = ++this.epoch;
         this.painter.clear();
-        const identity = this.identity();
-        if (!identity) { this.library = null; this.ui.update(); return; }
+        this.library = null; this.ui.update();
+        if (!this.identity()) return;
         this.loading = (async () => {
+            const identity = await this.prepareIdentity();
+            if (!this.alive || epoch !== this.epoch || identity.key !== this.key()) return;
             let lib = await this.store.get('libraries', identity.key);
             if (!lib) {
                 let initial = newLibrary(identity.key, identity.owner, identity.label);
                 const mainChat = this.host().chatMetadata?.main_chat;
                 if (mainChat) {
-                    const parents = (await this.store.all()).filter(l => l.owner === identity.owner && l.label === mainChat && !l.retired);
+                    const parents = (await this.store.all()).filter(l => l.owner === identity.owner && (l.label === mainChat || l.aliases?.includes(mainChat)) && !l.retired);
                     if (parents.length === 1 && this.key() === identity.key) initial = inheritRecords(parents[0], initial, this.host().chat);
                 }
+                initial.branchParent = mainChat || null;
                 lib = (await this.store.update(identity.key, initial, () => {})).library;
-            } else if (lib.label !== identity.label) lib = (await this.store.update(identity.key, lib, l => { l.label = identity.label; })).library;
+            } else if (lib.label !== identity.label || !Object.hasOwn(lib, 'branchParent')) lib = (await this.store.update(identity.key, lib, l => {
+                if (l.label !== identity.label) l.aliases = [...new Set([...(l.aliases ?? []), l.label])];
+                l.label = identity.label; l.branchParent = this.host().chatMetadata?.main_chat || null;
+            })).library;
             if (!this.alive || epoch !== this.epoch || identity.key !== this.key()) return;
             this.library = lib; this.ui.update(); this.paint();
         })();

@@ -1,11 +1,11 @@
 {
   "display_name": "红笔标记",
   "author": "Red Pen contributors",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "loading_order": 100,
   "js": "index.js",
   "css": "style.css",
-  "minimum_client_version": "1.19.0",
+  "minimum_client_version": "1.18.0",
   "auto_update": false,
   "homePage": "https://github.com/cjhkcjgk3-sys/sillytavern-red-pen",
   "generate_interceptor": "redPenGenerationInterceptor",

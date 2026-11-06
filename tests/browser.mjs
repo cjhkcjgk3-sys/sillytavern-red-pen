@@ -163,6 +163,35 @@ try {
             return{before,marked,after,removed};
         });assert.equal(result.before,0);assert.deepEqual(result.marked,[2]);assert.deepEqual(result.after,[2]);assert.match(result.removed,/原回答版本已删除/);
     });
+    await run('1.18 共用原生 integrity 的分支、重命名及分支再分支独立持久化', async()=>{
+        const result=await page.evaluate(async()=>{
+            const parentKey=app.key();const parentRecords=structuredClone(app.library.records);
+            context.chatId='1.18分支';context.chatMetadata={integrity:'integrity-a',main_chat:'聊天 A'};context.chat=context.chat.slice(0,2);draw();await app.refresh();
+            const scope=context.chatMetadata.red_pen_scope_v1,key=app.key(),inherited=app.library.records.map(r=>r.number);
+            await app.remove([app.library.records[0].id]);
+            context.chatId='1.18分支改名';await app.refresh();const renamed=app.key()===key;
+            const branchCount=app.library.records.length;
+            context.chatId='1.18孙分支';context.chatMetadata={...context.chatMetadata,main_chat:'1.18分支改名'};await app.refresh();
+            const grandchild=app.key()!==key&&context.chatMetadata.red_pen_scope_v1!==scope;
+            const parent=await app.store.get('libraries',parentKey);
+            const branch=await app.store.get('libraries',key);
+            context.chat=structuredClone(fixture.messages);context.chatId='聊天 A';context.chatMetadata={integrity:'integrity-a'};draw();await app.refresh();
+            return{inherited,renamed,grandchild,branchCount,branchKept:branch.records.length===branchCount,parentKept:JSON.stringify(parent.records)===JSON.stringify(parentRecords),nativeIntegrity:context.chatMetadata.integrity};
+        });assert.deepEqual(result.inherited,[1,2,5]);assert.equal(result.renamed,true);assert.equal(result.grandchild,true);assert.equal(result.branchKept,true);assert.equal(result.parentKept,true);assert.equal(result.nativeIntegrity,'integrity-a');
+    });
+    await run('1.18 分支隔离标识保存失败不读取或发送父库', async()=>{
+        saveFailure=true;
+        const result=await page.evaluate(async()=>{
+            context.chatId='失败分支';context.chatMetadata={integrity:'integrity-a',main_chat:'聊天 A'};
+            let error='';try{await app.refresh();}catch(e){error=e.message;}
+            const noLibrary=app.library===null,noScope=!context.chatMetadata.red_pen_scope_v1;
+            await context.eventSource.emit('GENERATION_STARTED','normal',{},false);
+            let blocked=false;try{await fetch('/api/backends/chat-completions/generate',{method:'POST',body:JSON.stringify({type:'normal',messages:[]})});}catch{blocked=true;}
+            await context.eventSource.emit('GENERATION_ENDED');return{error,noLibrary,noScope,blocked};
+        });assert.match(result.error,/隔离标识未能保存/);assert.equal(result.noLibrary,true);assert.equal(result.noScope,true);assert.equal(result.blocked,true);
+        saveFailure=false;
+        await page.evaluate(async()=>{context.chat=structuredClone(fixture.messages);context.chatId='聊天 A';context.chatMetadata={integrity:'integrity-a'};draw();await app.refresh();});
+    });
     await run('200 条 / 10 万字界面性能与搜索（桌面 Chromium 夹具）', async()=>{
         const metrics=await page.evaluate(async()=>{
             context.chatId='性能测试';context.chatMetadata={integrity:'performance'};await app.refresh();

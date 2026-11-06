@@ -5,7 +5,7 @@
 }
 .rp-bar, .rp-action, .rp-toast, .rp-library { font: inherit; color: var(--SmartThemeBodyColor, #eee); box-sizing: border-box; }
 .rp-bar { position: fixed; right: 12px; bottom: max(90px, env(safe-area-inset-bottom)); display: flex; gap: 4px; z-index: 2000; padding: 4px; border: 1px solid var(--SmartThemeBorderColor, #777); border-radius: 10px; background: var(--SmartThemeBlurTintColor, #25252d); }
-.rp-bar .menu_button, .rp-action .menu_button, .rp-library .menu_button, .rp-toast .menu_button { margin: 0; padding: 8px 10px; min-height: 44px; cursor: pointer; font: inherit; border-radius: 6px; }
+.rp-bar .menu_button, .rp-action .menu_button, .rp-library .menu_button, .rp-toast .menu_button { margin: 0; padding: 8px 10px; min-height: 44px; cursor: pointer; font: inherit; border-radius: 6px; display: inline-flex; width: auto; flex: 0 0 auto; white-space: nowrap; }
 .rp-bar [aria-pressed="true"] { color: #ff747b; box-shadow: inset 0 -2px #ee4a53; }
 .rp-action { position: fixed; z-index: 10010; display: flex; gap: 6px; align-items: center; padding: 6px; border: 1px solid var(--SmartThemeBorderColor, #777); border-radius: 9px; background: var(--SmartThemeBlurTintColor, #25252d); box-shadow: 0 3px 16px #0005; max-width: calc(100vw - 16px); }
 .rp-action[hidden], .rp-toast[hidden] { display: none; }

@@ -37,7 +37,9 @@ export class Transport {
         type = normalizedType(type);
         if (dryRun || !normalTypes.has(type)) return;
         const id = ++this.serial;
-        const key = this.currentKey();
+        let key = this.currentKey();
+        const startContext = this.host();
+        const metadata = startContext.chatMetadata, chatId = startContext.chatId;
         // Freeze the switch at generation start, before asynchronous database work.
         const on = this.enabled();
         this.active = true;
@@ -45,6 +47,12 @@ export class Transport {
         try {
             await this.ready();
             if (on) {
+                const current = this.host();
+                if (current.chatMetadata !== metadata || current.chatId !== chatId) throw new Error('请求准备时聊天发生切换，已暂停发送');
+                // A legacy branch can receive its own persisted scope during
+                // readiness. Capture that final key before reading any records.
+                key = this.currentKey();
+                if (this.snapshot?.id === id) this.snapshot.key = key;
                 if (!key) throw new Error('尚未确定当前聊天，已暂停发送');
                 const lib = await this.load(key);
                 if (lib?.retired) throw new Error('此聊天内容库已停用，请重新打开聊天');

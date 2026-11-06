@@ -1,10 +1,10 @@
 {
   "name": "sillytavern-red-pen",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "license": "MIT",
   "repository": {"type": "git", "url": "https://github.com/cjhkcjgk3-sys/sillytavern-red-pen.git"},
   "type": "module",
-  "scripts": {"test": "node --test tests/*.test.js", "test:browser": "node tests/browser.mjs", "check": "node scripts/check.mjs"},
+  "scripts": {"test": "node --test tests/*.test.js", "test:browser": "node tests/browser.mjs", "test:runtime:118": "node tests/runtime-118.mjs", "check": "node scripts/check.mjs"},
   "devDependencies": {"playwright-core": "1.56.1"}
 }

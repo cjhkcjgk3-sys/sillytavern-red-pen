@@ -1,0 +1,109 @@
+{
+  "environment": "真实隔离 SillyTavern 1.18.0 + 本地 OpenAI/Google 模拟接口；未连接真实模型服务",
+  "version": "1.18.0",
+  "sourceCommit": "51ad27fb86d39a3daca3adaa970375c9670c12df",
+  "browser": "156.0.8078.79",
+  "at": "2026-11-06T09:17:47.962Z",
+  "results": [
+    {
+      "name": "1.18 原生扩展管理加载 0.1.1；首次挂载无重复",
+      "status": "通过（隔离真实酒馆，模型为本地模拟接口）",
+      "version": "1.18.0",
+      "commit": "51ad27f",
+      "pluginVersion": "0.1.1"
+    },
+    {
+      "name": "真实消息选区、保存确认、高亮和原文保护",
+      "status": "通过（隔离真实酒馆，模型为本地模拟接口）"
+    },
+    {
+      "name": "原生 normal → OpenAI 兼容最终 HTTP 请求完整附加一次",
+      "status": "通过（隔离真实酒馆，模型为本地模拟接口）",
+      "type": "normal",
+      "provider": "custom",
+      "markedText": "雨城"
+    },
+    {
+      "name": "原生 regenerate → OpenAI 兼容最终 HTTP 请求完整附加一次",
+      "status": "通过（隔离真实酒馆，模型为本地模拟接口）",
+      "type": "regenerate",
+      "provider": "custom",
+      "markedText": "雨城"
+    },
+    {
+      "name": "原生 continue → OpenAI 兼容最终 HTTP 请求完整附加一次",
+      "status": "通过（隔离真实酒馆，模型为本地模拟接口）",
+      "type": "continue",
+      "provider": "custom",
+      "markedText": "雨城"
+    },
+    {
+      "name": "原生 swipe → OpenAI 兼容最终 HTTP 请求完整附加一次",
+      "status": "通过（隔离真实酒馆，模型为本地模拟接口）",
+      "type": "swipe",
+      "provider": "custom",
+      "markedText": "雨城"
+    },
+    {
+      "name": "原生 Google 请求 → 服务端 contents/parts 转换后完整附加一次",
+      "status": "通过（隔离真实酒馆，模型为本地模拟接口）",
+      "provider": "makersuite",
+      "format": "contents/parts",
+      "markedText": "雨城"
+    },
+    {
+      "name": "1.18 原生分支继承范围、父子独立、重命名与服务器保存 scope",
+      "status": "通过（隔离真实酒馆，模型为本地模拟接口）",
+      "before": 2,
+      "inherited": [
+        "雨城"
+      ],
+      "separate": true,
+      "renamed": true,
+      "persisted": true,
+      "sameNativeIntegrity": true,
+      "parentCount": 2
+    },
+    {
+      "name": "真实页面刷新恢复内容库、开关与正文高亮",
+      "status": "通过（隔离真实酒馆，模型为本地模拟接口）"
+    },
+    {
+      "name": "关闭后原生请求零附加",
+      "status": "通过（隔离真实酒馆，模型为本地模拟接口）"
+    }
+  ],
+  "unrelatedStartupErrors": [],
+  "requests": [
+    {
+      "provider": "OpenAI messages",
+      "index": 1,
+      "hasMarkedMaterial": true
+    },
+    {
+      "provider": "OpenAI messages",
+      "index": 2,
+      "hasMarkedMaterial": true
+    },
+    {
+      "provider": "OpenAI messages",
+      "index": 3,
+      "hasMarkedMaterial": true
+    },
+    {
+      "provider": "OpenAI messages",
+      "index": 4,
+      "hasMarkedMaterial": true
+    },
+    {
+      "provider": "Google contents/parts",
+      "index": 5,
+      "hasMarkedMaterial": true
+    },
+    {
+      "provider": "OpenAI messages",
+      "index": 6,
+      "hasMarkedMaterial": false
+    }
+  ]
+}
