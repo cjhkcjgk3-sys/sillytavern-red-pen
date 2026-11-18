@@ -6,7 +6,7 @@
 
 ## 开工前必读：AI 经验仓库
 
-> 本段由 [ai-dev-lessons](https://github.com/cjhkcjgk3-sys/ai-dev-lessons) 统一同步，所有 AI 都要遵守；与下文冲突时以本段为准。
+> 本段由 [ai-dev-lessons](https://github.com/cjhkcjgk3-sys/ai-dev-lessons) 统一同步，所有 AI 都要遵守。**ai-dev-lessons 的 `正式/` 是唯一权威**；本文件其余内容只补充本仓库专属规定，与经验仓库冲突时以经验仓库为准。
 
 1. **先读完 [ai-dev-lessons 的 `正式/`](https://github.com/cjhkcjgk3-sys/ai-dev-lessons/tree/main/正式)**：通用准则、检查清单、工作流程、全部模型专项（不只读自己那份）。可 `git clone`／`git pull` 该仓库，拉不到就看网页版，并在汇报里写明没读到哪些。开工汇报第一句写本次相关的条目编号。
 2. **先查能不能复用**：本仓库已有代码、SillyTavern 自带功能、兄弟插件，汇报里写明查了哪些。
